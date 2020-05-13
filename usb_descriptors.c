@@ -88,7 +88,7 @@ const usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((
     .bDescriptorType     = 33,
     .bmAttributes        = 3,
     .wDetachTimeout      = 0,
-    .wTransferSize       = FLASH_PAGE_SIZE, ///< 64 on SAMD11 and 512 on SAMD51
+    .wTransferSize       = NVMCTRL_PAGE_SIZE, ///< 64 on SAMD11 and 512 on SAMD51
     .bcdDFU              = 0x100,
   },
 };
