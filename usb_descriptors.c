@@ -28,6 +28,7 @@
 
 
 /*- Includes ----------------------------------------------------------------*/
+#include <sam.h>
 #include "usb.h"
 #include "usb_descriptors.h"
 
@@ -87,7 +88,7 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((aligne
     .bDescriptorType     = 33,
     .bmAttributes        = 3,
     .wDetachTimeout      = 0,
-    .wTransferSize       = 64,
+    .wTransferSize       = FLASH_PAGE_SIZE/sizeof(uint32_t), ///< 64 on SAMD11 and 512 on SAMD51
     .bcdDFU              = 0x100,
   },
 };
