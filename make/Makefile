@@ -9,13 +9,7 @@ CC = arm-none-eabi-gcc
 OBJCOPY = arm-none-eabi-objcopy
 SIZE = arm-none-eabi-size
 
-ifeq ($(OS), Windows_NT)
-  MKDIR = gmkdir
-else
-  MKDIR = mkdir
-endif
-
-CFLAGS += -W -Wall --std=gnu99 -Os -g3
+CFLAGS += -W -Wall --std=gnu99 -Os
 CFLAGS += -Wno-address-of-packed-member
 CFLAGS += -fno-diagnostics-show-caret
 CFLAGS += -fdata-sections -ffunction-sections
@@ -29,6 +23,7 @@ LDFLAGS += -Wl,--script=../linker/samd11d14.ld
 
 INCLUDES += \
   -I../include \
+  -I../include/samd11 \
   -I..
 
 SRCS += \
@@ -47,9 +42,9 @@ ASFLAGS += $(CFLAGS)
 OBJS = $(addprefix $(BUILD)/, $(notdir %/$(subst .c,.o, $(SRCS))))
 OBJS += $(BUILD)/startup.o
 
-all: directory $(BUILD)/$(BIN).elf $(BUILD)/$(BIN).hex $(BUILD)/$(BIN).bin size
+all: ${BUILD} $(BUILD)/$(BIN).elf $(BUILD)/$(BIN).hex $(BUILD)/$(BIN).bin size
 
-$(BUILD)/$(BIN).elf: $(OBJS)
+$(BUILD)/$(BIN).elf: $(OBJS) $(BUILD)
 	@echo LD $@
 	@$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
 
@@ -65,12 +60,12 @@ $(BUILD)/$(BIN).bin: $(BUILD)/$(BIN).elf
 	@echo CC $@
 	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SRCS)) -c -o $@
 
-$(BUILD)/startup.o: ../startup.s
+$(BUILD)/startup.o: ../startup.s $(BUILD)
 	@echo CC $@
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
 
-directory:
-	@$(MKDIR) -p $(BUILD)
+$(BUILD):
+	mkdir $@
 
 size: $(BUILD)/$(BIN).elf
 	@echo size:
@@ -78,7 +73,7 @@ size: $(BUILD)/$(BIN).elf
 
 clean:
 	@echo clean
-	@-rm -rf $(BUILD)
+	@-rmdir /S /Q $(BUILD)
 
 -include $(wildcard $(BUILD)/*.d)
 
