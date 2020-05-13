@@ -38,7 +38,7 @@ __STACKSIZE__ = 256;
 
 MEMORY
 {
-  flash (rx) : ORIGIN = 0x00000000, LENGTH = 0x400 /* 1k */
+  flash (rx) : ORIGIN = 0x00000000, LENGTH = 0x800 /* 2k */
   ram  (rwx) : ORIGIN = 0x20000000, LENGTH = 0x1000 /* 4k */
 }
 
