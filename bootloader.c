@@ -48,6 +48,14 @@ NOTES:
 #define USB_CMD(dir, rcpt, type) ((USB_##dir##_TRANSFER << 7) | (USB_##type##_REQUEST << 5) | (USB_##rcpt##_RECIPIENT << 0))
 #define SIMPLE_USB_CMD(rcpt, type) ((USB_##type##_REQUEST << 5) | (USB_##rcpt##_RECIPIENT << 0))
 
+#ifndef F_CPU
+# error "Macro F_CPU must be defined"
+#endif
+
+#if !defined(__SAMD11__) && !defined(__SAMD51__)
+# error "Macro __SAMD11__ or  __SAMD51__ must be defined"
+#endif
+
 /*- Types -------------------------------------------------------------------*/
 typedef struct
 {
@@ -56,21 +64,24 @@ typedef struct
 } udc_mem_t;
 
 /*- Variables ---------------------------------------------------------------*/
-static uint32_t usb_config = 0;
-static uint32_t dfu_status_choices[4] =
+static const uint32_t dfu_status_choices[4] =
 { 
   0x00000000, 0x00000002, /* normal */
   0x00000000, 0x00000005, /* dl */
 };
 
 static udc_mem_t udc_mem[USB_EPT_NUM];
-static uint32_t udc_ctrl_in_buf[16];
-static uint32_t udc_ctrl_out_buf[16];
+static uint32_t udc_ctrl_in_buf[FLASH_PAGE_SIZE/sizeof(uint32_t)];
+static uint32_t udc_ctrl_out_buf[FLASH_PAGE_SIZE/sizeof(uint32_t)];
+
+static uint32_t usb_config = 0;
+static uint32_t dfu_addr;
+static const uint32_t* dfu_status = dfu_status_choices + 0;
 
 /*- Implementations ---------------------------------------------------------*/
 
 //-----------------------------------------------------------------------------
-static void udc_control_send(const uint32_t *data, uint32_t size)
+static void udc_control_send(const uint32_t* const data, const uint32_t size)
 {
   /* USB peripheral *only* reads valid data from 32-bit aligned RAM locations */
   udc_mem[0].in.ADDR.reg = (uint32_t)data;
@@ -89,11 +100,60 @@ static void udc_control_send_zlp(void)
   udc_control_send(NULL, 0); /* peripheral can't read from NULL address, but size is zero and this value takes less space to compile */
 }
 
-//-----------------------------------------------------------------------------
+static void nvmctrl_wait_ready()
+{
+#if __SAMD11__
+    while (!NVMCTRL->INTFLAG.bit.READY);
+#elif __SAMD51__
+    while (!NVMCTRL->STATUS.bit.READY);
+#else
+#error "Unsupported processor class"
+#endif
+}
+
+#if __SAMD11__
+static void nvmctrl_erase_row(uint32_t addr) 
+{
+    //@todo Necessary?
+    //nvmctrl_wait_ready();
+    //NVMCTRL->STATUS.reg = NVMCTRL_STATUS_MASK;
+
+    //Execute Erase-Row command
+    NVMCTRL->ADDR.reg = addr / 2;
+    NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
+    nvmctrl_wait_ready();
+}
+#elif __SAMD51__
+
+#endif
+
+
+static void dfuDownloadToNvm()
+{
+    // Erase page before write
+    // @todo Only erase if content differs?
+#if __SAMD11__
+    if (0 == ((dfu_addr >> 6) & 0x3))
+    {
+        nvmctrl_erase_row(dfu_addr);
+    }
+#elif __SAMD51__
+#error "Todo: implement NVM write for Samd51"
+#else
+#error "Unsupported processor class"s
+#endif
+
+    typedef uint16_t NvmWord;/// @todo Do we need to write in 16-bit chunks or 32bit okay?
+    NvmWord* nvm_addr = (NvmWord*)(dfu_addr);
+    NvmWord* ram_addr = (NvmWord*)udc_ctrl_out_buf;
+    for (unsigned i = 0; i < sizeof(udc_ctrl_out_buf) / sizeof(NvmWord); ++i)
+        *nvm_addr++ = *ram_addr++;
+
+    nvmctrl_wait_ready();
+}
+
 static void USB_Service(void)
 {
-  static uint32_t dfu_addr;
-
   if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
   {
     USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_EORST;
@@ -119,21 +179,10 @@ static void USB_Service(void)
   {
     if (dfu_addr)
     {
-      if (0 == ((dfu_addr >> 6) & 0x3))
-      {
-        NVMCTRL->ADDR.reg = dfu_addr >> 1;
-        NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD(NVMCTRL_CTRLA_CMD_ER);
-        while (!NVMCTRL->INTFLAG.bit.READY);
-      }
+        dfuDownloadToNvm();
 
-      uint16_t *nvm_addr = (uint16_t *)(dfu_addr);
-      uint16_t *ram_addr = (uint16_t *)udc_ctrl_out_buf;
-      for (unsigned i = 0; i < 32; i++)
-        *nvm_addr++ = *ram_addr++;
-      while (!NVMCTRL->INTFLAG.bit.READY);
-
-      udc_control_send_zlp();
-      dfu_addr = 0;
+        udc_control_send_zlp();
+        dfu_addr = 0;
     }
 
     USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0;
@@ -145,9 +194,8 @@ static void USB_Service(void)
     USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
 
     usb_request_t *request = (usb_request_t *)udc_ctrl_out_buf;
-    uint8_t type = request->wValue >> 8;
-    uint16_t length = request->wLength;
-    static uint32_t *dfu_status = dfu_status_choices + 0;
+    const uint8_t type = request->wValue >> 8;
+    const uint16_t length = request->wLength;
 
     /* for these other USB requests, we must examine all fields in bmRequestType */
     if (USB_CMD(OUT, INTERFACE, STANDARD) == request->bmRequestType)
@@ -200,17 +248,17 @@ static void USB_Service(void)
     case SIMPLE_USB_CMD(INTERFACE, CLASS):
       switch (request->bRequest)
       {
-        case 0x03: // DFU_GETSTATUS
+      case 0x03: // DFU_GETSTATUS
           udc_control_send(&dfu_status[0], 6);
           break;
-        case 0x05: // DFU_GETSTATE
+      case 0x05: // DFU_GETSTATE
           udc_control_send(&dfu_status[1], 1);
           break;
-        case 0x01: // DFU_DNLOAD
+      case 0x01: // DFU_DNLOAD
           dfu_status = dfu_status_choices + 0;
           if (request->wLength)
           {
-            dfu_status = dfu_status_choices + 2;
+              dfu_status = dfu_status_choices + 2;
             dfu_addr = 0x400 + request->wValue * 64;
           }
           /* fall through */
@@ -225,143 +273,211 @@ static void USB_Service(void)
   }
 }
 
+static void configureClock()
+{
+#if __SAMD11__
+#if 1
+    /*
+    configure oscillator for crystal-free USB operation (USBCRM / USB Clock Recovery Mode)
+    */
+
+    SYSCTRL->OSC8M.bit.PRESC = 0;
+
+    SYSCTRL->INTFLAG.reg = SYSCTRL_INTFLAG_BOD33RDY | SYSCTRL_INTFLAG_BOD33DET | SYSCTRL_INTFLAG_DFLLRDY;
+
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL;
+
+    SYSCTRL->DFLLCTRL.reg = 0; // See Errata 9905
+    while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
+
+    SYSCTRL->DFLLMUL.reg = SYSCTRL_DFLLMUL_MUL(48000);
+    SYSCTRL->DFLLVAL.reg = SYSCTRL_DFLLVAL_COARSE( NVM_READ_CAL(NVM_DFLL48M_COARSE_CAL) ) | SYSCTRL_DFLLVAL_FINE( NVM_READ_CAL(NVM_DFLL48M_FINE_CAL) );
+
+    SYSCTRL->DFLLCTRL.reg = SYSCTRL_DFLLCTRL_ENABLE | SYSCTRL_DFLLCTRL_USBCRM | SYSCTRL_DFLLCTRL_MODE | SYSCTRL_DFLLCTRL_BPLCKC | SYSCTRL_DFLLCTRL_CCDIS | SYSCTRL_DFLLCTRL_STABLE;
+
+    while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
+
+    GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(0) | GCLK_GENCTRL_SRC(GCLK_SOURCE_DFLL48M) | GCLK_GENCTRL_RUNSTDBY | GCLK_GENCTRL_GENEN;
+    while (GCLK->STATUS.bit.SYNCBUSY);
+#else
+    /*
+    configure oscillator for operation disciplined by external 32k crystal
+
+    This can only be used on PCBs (such as Arduino Zero derived designs) that have these extra components populated.
+    It *should* be wholly unnecessary to use this instead of the above USBCRM code.
+    However, some problem (Sparkfun?) PCBs experience unreliable USB operation in USBCRM mode.
+    */
+
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL;
+
+    SYSCTRL->XOSC32K.reg = SYSCTRL_XOSC32K_STARTUP( 0x6u ) | SYSCTRL_XOSC32K_XTALEN | SYSCTRL_XOSC32K_EN32K;
+    SYSCTRL->XOSC32K.reg |= SYSCTRL_XOSC32K_ENABLE;
+
+    while (!(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_XOSC32KRDY));
+
+    GCLK->GENDIV.reg = GCLK_GENDIV_ID( 1u /* XOSC32K */ );
+
+    GCLK->GENCTRL.reg = GCLK_GENCTRL_ID( 1u /* XOSC32K */ ) | GCLK_GENCTRL_SRC_XOSC32K | GCLK_GENCTRL_GENEN;
+
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID( 0u /* DFLL48M */ ) | GCLK_CLKCTRL_GEN_GCLK1 | GCLK_CLKCTRL_CLKEN;
+
+    //  while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY);
+
+    SYSCTRL->DFLLCTRL.reg = 0; // See Errata 9905
+  //  while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
+
+    SYSCTRL->DFLLMUL.reg = SYSCTRL_DFLLMUL_CSTEP( 31 ) | SYSCTRL_DFLLMUL_FSTEP( 511 ) | SYSCTRL_DFLLMUL_MUL(48000000ul / 32768ul);
+
+    SYSCTRL->DFLLCTRL.reg = SYSCTRL_DFLLCTRL_ENABLE | SYSCTRL_DFLLCTRL_MODE | SYSCTRL_DFLLCTRL_WAITLOCK | SYSCTRL_DFLLCTRL_QLDIS;
+
+    while ( !(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLLCKC) || !(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLLCKF) || !(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLRDY) );
+
+    GCLK->GENDIV.reg = GCLK_GENDIV_ID( 0u /* MAIN */ );
+
+    GCLK->GENCTRL.reg = GCLK_GENCTRL_ID( 0u /* MAIN */ ) | GCLK_GENCTRL_SRC_DFLL48M | GCLK_GENCTRL_IDC | GCLK_GENCTRL_GENEN;
+
+    while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY);
+#endif
+#elif __SAMD51__
+#error "Not implemented"
+#else
+#error "Unsupported processor class"
+#endif
+}
+
+static bool userImageCrc()
+{
+#if __SAMD11__ 
+    PAC1->WPCLR.reg = 2; /* clear DSU */
+#elif __SAMD51__
+    //@todo needed for SAMD51?
+    ///PAC1->WPCLR.reg = 2; /* clear DSU */
+#else
+#error "Unsupported processor class"
+#endif
+
+    DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
+    DSU->LENGTH.reg = *(volatile uint32_t*)0x410; /* use length encoded into unused vector address in user app */
+
+    /* ask DSU to compute CRC */
+    DSU->DATA.reg = 0xFFFFFFFF;
+    DSU->CTRL.bit.CRC = 1;
+    while (!DSU->STATUSA.bit.DONE);
+
+    return !(DSU->DATA.reg);
+}
+
 #ifdef USE_DBL_TAP
   extern int __RAM_segment_used_end__;
   static volatile uint32_t *DBL_TAP_PTR = (volatile uint32_t *)(&__RAM_segment_used_end__);
   #define DBL_TAP_MAGIC 0xf02669ef
 #endif
 
-void bootloader(void)
+static bool hasResetDoubleTap()
+{
+#if __SAMD11__ 
+    const bool isPowerOnReset = (PM->RCAUSE.bit.POR);
+#elif __SAMD51__
+    const bool isPowerOnReset = (RSTC->RCAUSE.bit.POR);
+#else
+#error "Unsupported processor class"
+#endif
+
+    const bool hasResetMagic = (*DBL_TAP_PTR == DBL_TAP_MAGIC);
+
+    return !isPowerOnReset && hasResetMagic;
+}
+
+static void doubleTapResetDelay()
+{
+    /* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
+    *DBL_TAP_PTR = DBL_TAP_MAGIC;
+    /// @Note Default iOS double tap is .25 seconds so we use this here based on processor frequency
+    volatile int wait = F_CPU/4; while (--wait);
+    /* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
+    *DBL_TAP_PTR = 0;
+}
+/* pin PA15 grounded, so run bootloader */
+static bool hasGroundedPA15()
+{
+    /* configure PA15 (bootloader entry pin used by SAM-BA) as input pull-up */
+    PORT->Group[0].PINCFG[15].reg = PORT_PINCFG_PULLEN | PORT_PINCFG_INEN;
+    PORT->Group[0].OUTSET.reg = (1UL << 15);
+
+    return (!(PORT->Group[0].IN.reg & (1UL << 15)));
+}
+
+static bool bootloaderUserEntry()
 {
 #ifndef USE_DBL_TAP
-  /* configure PA15 (bootloader entry pin used by SAM-BA) as input pull-up */
-  PORT->Group[0].PINCFG[15].reg = PORT_PINCFG_PULLEN | PORT_PINCFG_INEN;
-  PORT->Group[0].OUTSET.reg = (1UL << 15);
-#endif
-
-  PAC1->WPCLR.reg = 2; /* clear DSU */
-
-  DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
-  DSU->LENGTH.reg = *(volatile uint32_t *)0x410; /* use length encoded into unused vector address in user app */
-
-  /* ask DSU to compute CRC */
-  DSU->DATA.reg = 0xFFFFFFFF;
-  DSU->CTRL.bit.CRC = 1;
-  while (!DSU->STATUSA.bit.DONE);
-
-  if (DSU->DATA.reg)
-    goto run_bootloader; /* CRC failed, so run bootloader */
-
-#ifndef USE_DBL_TAP
-  if (!(PORT->Group[0].IN.reg & (1UL << 15)))
-    goto run_bootloader; /* pin grounded, so run bootloader */
-
-  return; /* we've checked everything and there is no reason to run the bootloader */
+    return hasGroundedPA15();
 #else
-  if (PM->RCAUSE.reg & PM_RCAUSE_POR)
-    *DBL_TAP_PTR = 0; /* a power up event should never be considered a 'double tap' */
-  
-  if (*DBL_TAP_PTR == DBL_TAP_MAGIC)
-  {
-    /* a 'double tap' has happened, so run bootloader */
-    *DBL_TAP_PTR = 0;
-    goto run_bootloader;
-  }
 
-  /* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
-  *DBL_TAP_PTR = DBL_TAP_MAGIC;
-  volatile int wait = 65536; while (wait--);
-  /* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
+    if (hasResetDoubleTap() )
+        return true;
+
+    doubleTapResetDelay();
+    return false;
+#endif
+}
+
+/* initialize USB
+*/
+static void initializeUsb()
+{
+#if __SAMD11__
+    PORT->Group[0].PINCFG[24].reg |= PORT_PINCFG_PMUXEN;
+    PORT->Group[0].PINCFG[25].reg |= PORT_PINCFG_PMUXEN;
+    PORT->Group[0].PMUX[24>>1].reg = PORT_PMUX_PMUXO(PORT_PMUX_PMUXE_G_Val) | PORT_PMUX_PMUXE(PORT_PMUX_PMUXE_G_Val);
+
+    PM->APBBMASK.reg |= PM_APBBMASK_USB;
+
+    GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_ID(USB_GCLK_ID) | GCLK_CLKCTRL_GEN(0);
+
+    USB->DEVICE.CTRLA.reg = USB_CTRLA_SWRST;
+    while (USB->DEVICE.SYNCBUSY.bit.SWRST);
+
+    USB->DEVICE.PADCAL.reg = USB_PADCAL_TRANSN( NVM_READ_CAL(NVM_USB_TRANSN) ) | USB_PADCAL_TRANSP( NVM_READ_CAL(NVM_USB_TRANSP) ) | USB_PADCAL_TRIM( NVM_READ_CAL(NVM_USB_TRIM) );
+
+    USB->DEVICE.DESCADD.reg = (uint32_t)udc_mem;
+
+    USB->DEVICE.CTRLA.reg = USB_CTRLA_MODE_DEVICE | USB_CTRLA_RUNSTDBY;
+    USB->DEVICE.CTRLB.reg = USB_DEVICE_CTRLB_SPDCONF_FS;
+    USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
+#elif __SAMD51__
+
+    /* Enable USB clock */
+    MCLK->APBBMASK.reg |= MCLK_APBBMASK_USB;
+    MCLK->AHBMASK.reg |= MCLK_AHBMASK_USB;
+
+    // Set up the USB DP/DN pins
+    PORT->Group[0].PINCFG[PIN_PA24H_USB_DM].bit.PMUXEN = 1;
+    PORT->Group[0].PMUX[PIN_PA24H_USB_DM / 2].reg &= ~(0xF << (4 * (PIN_PA24H_USB_DM & 0x01u)));
+    PORT->Group[0].PMUX[PIN_PA24H_USB_DM / 2].reg |= MUX_PA24H_USB_DM << (4 * (PIN_PA24H_USB_DM & 0x01u));
+    PORT->Group[0].PINCFG[PIN_PA25H_USB_DP].bit.PMUXEN = 1;
+    PORT->Group[0].PMUX[PIN_PA25H_USB_DP / 2].reg &= ~(0xF << (4 * (PIN_PA25H_USB_DP & 0x01u)));
+    PORT->Group[0].PMUX[PIN_PA25H_USB_DP / 2].reg |= MUX_PA25H_USB_DP << (4 * (PIN_PA25H_USB_DP & 0x01u));
+
+    GCLK->PCHCTRL[USB_GCLK_ID].reg = GCLK_PCHCTRL_GEN_GCLK1_Val | (1 << GCLK_PCHCTRL_CHEN_Pos);
+#else
+#error "Unsupported processor class"
+#endif
+}
+
+void bootloader(void)
+{
+    if ( userImageCrc()
+      && !bootloaderUserEntry() )
+        return;
+
+#ifdef USE_DBL_TAP
+  /* a 'double tap' has happened, so run bootloader */
   *DBL_TAP_PTR = 0;
-  return;
 #endif
 
-run_bootloader:
-#if 1
-  /*
-  configure oscillator for crystal-free USB operation (USBCRM / USB Clock Recovery Mode)
-  */
-  
-  SYSCTRL->OSC8M.bit.PRESC = 0;
+  configureClock();
+  initializeUsb();
 
-  SYSCTRL->INTFLAG.reg = SYSCTRL_INTFLAG_BOD33RDY | SYSCTRL_INTFLAG_BOD33DET | SYSCTRL_INTFLAG_DFLLRDY;
-
-  NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL;
-
-  SYSCTRL->DFLLCTRL.reg = 0; // See Errata 9905
-  while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
-
-  SYSCTRL->DFLLMUL.reg = SYSCTRL_DFLLMUL_MUL(48000);
-  SYSCTRL->DFLLVAL.reg = SYSCTRL_DFLLVAL_COARSE( NVM_READ_CAL(NVM_DFLL48M_COARSE_CAL) ) | SYSCTRL_DFLLVAL_FINE( NVM_READ_CAL(NVM_DFLL48M_FINE_CAL) );
-
-  SYSCTRL->DFLLCTRL.reg = SYSCTRL_DFLLCTRL_ENABLE | SYSCTRL_DFLLCTRL_USBCRM | SYSCTRL_DFLLCTRL_MODE | SYSCTRL_DFLLCTRL_BPLCKC | SYSCTRL_DFLLCTRL_CCDIS | SYSCTRL_DFLLCTRL_STABLE;
-
-  while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
-
-  GCLK->GENCTRL.reg = GCLK_GENCTRL_ID(0) | GCLK_GENCTRL_SRC(GCLK_SOURCE_DFLL48M) | GCLK_GENCTRL_RUNSTDBY | GCLK_GENCTRL_GENEN;
-  while (GCLK->STATUS.bit.SYNCBUSY);
-#else
-  /*
-  configure oscillator for operation disciplined by external 32k crystal
-
-  This can only be used on PCBs (such as Arduino Zero derived designs) that have these extra components populated.
-  It *should* be wholly unnecessary to use this instead of the above USBCRM code.
-  However, some problem (Sparkfun?) PCBs experience unreliable USB operation in USBCRM mode.
-  */
-
-  NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL;
-
-  SYSCTRL->XOSC32K.reg = SYSCTRL_XOSC32K_STARTUP( 0x6u ) | SYSCTRL_XOSC32K_XTALEN | SYSCTRL_XOSC32K_EN32K;
-  SYSCTRL->XOSC32K.reg |= SYSCTRL_XOSC32K_ENABLE;
-
-  while (!(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_XOSC32KRDY));
-
-  GCLK->GENDIV.reg = GCLK_GENDIV_ID( 1u /* XOSC32K */ );
-
-  GCLK->GENCTRL.reg = GCLK_GENCTRL_ID( 1u /* XOSC32K */ ) | GCLK_GENCTRL_SRC_XOSC32K | GCLK_GENCTRL_GENEN;
-
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID( 0u /* DFLL48M */ ) | GCLK_CLKCTRL_GEN_GCLK1 | GCLK_CLKCTRL_CLKEN;
-
-//  while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY);
-
-  SYSCTRL->DFLLCTRL.reg = 0; // See Errata 9905
-//  while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
-
-  SYSCTRL->DFLLMUL.reg = SYSCTRL_DFLLMUL_CSTEP( 31 ) | SYSCTRL_DFLLMUL_FSTEP( 511 ) | SYSCTRL_DFLLMUL_MUL(48000000ul / 32768ul);
-
-  SYSCTRL->DFLLCTRL.reg = SYSCTRL_DFLLCTRL_ENABLE | SYSCTRL_DFLLCTRL_MODE | SYSCTRL_DFLLCTRL_WAITLOCK | SYSCTRL_DFLLCTRL_QLDIS;
-
-  while ( !(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLLCKC) || !(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLLCKF) || !(SYSCTRL->PCLKSR.reg & SYSCTRL_PCLKSR_DFLLRDY) );
-
-  GCLK->GENDIV.reg = GCLK_GENDIV_ID( 0u /* MAIN */ );
-
-  GCLK->GENCTRL.reg = GCLK_GENCTRL_ID( 0u /* MAIN */ ) | GCLK_GENCTRL_SRC_DFLL48M | GCLK_GENCTRL_IDC | GCLK_GENCTRL_GENEN;
-
-  while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY);
-#endif
-
-  /*
-  initialize USB
-  */
-
-  PORT->Group[0].PINCFG[24].reg |= PORT_PINCFG_PMUXEN;
-  PORT->Group[0].PINCFG[25].reg |= PORT_PINCFG_PMUXEN;
-  PORT->Group[0].PMUX[24>>1].reg = PORT_PMUX_PMUXO(PORT_PMUX_PMUXE_G_Val) | PORT_PMUX_PMUXE(PORT_PMUX_PMUXE_G_Val);
-
-  PM->APBBMASK.reg |= PM_APBBMASK_USB;
-
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_ID(USB_GCLK_ID) | GCLK_CLKCTRL_GEN(0);
-
-  USB->DEVICE.CTRLA.reg = USB_CTRLA_SWRST;
-  while (USB->DEVICE.SYNCBUSY.bit.SWRST);
-
-  USB->DEVICE.PADCAL.reg = USB_PADCAL_TRANSN( NVM_READ_CAL(NVM_USB_TRANSN) ) | USB_PADCAL_TRANSP( NVM_READ_CAL(NVM_USB_TRANSP) ) | USB_PADCAL_TRIM( NVM_READ_CAL(NVM_USB_TRIM) );
-
-  USB->DEVICE.DESCADD.reg = (uint32_t)udc_mem;
-
-  USB->DEVICE.CTRLA.reg = USB_CTRLA_MODE_DEVICE | USB_CTRLA_RUNSTDBY;
-  USB->DEVICE.CTRLB.reg = USB_DEVICE_CTRLB_SPDCONF_FS;
-  USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
 
   /*
   service USB
