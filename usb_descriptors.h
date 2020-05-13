@@ -58,8 +58,8 @@ typedef struct PACK
 } usb_configuration_hierarchy_t;
 
 //-----------------------------------------------------------------------------
-extern usb_device_descriptor_t usb_device_descriptor;
-extern usb_configuration_hierarchy_t usb_configuration_hierarchy;
+extern const usb_device_descriptor_t usb_device_descriptor;
+extern const usb_configuration_hierarchy_t usb_configuration_hierarchy;
 
 #endif // _USB_DESCRIPTORS_H_
 

@@ -33,7 +33,7 @@
 #include "usb_descriptors.h"
 
 /*- Variables ---------------------------------------------------------------*/
-usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
+const usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
 {
   .bLength            = sizeof(usb_device_descriptor_t),
   .bDescriptorType    = USB_DEVICE_DESCRIPTOR,
@@ -55,7 +55,7 @@ usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))) = /*
   .bNumConfigurations     = 1
 };
 
-usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
+const usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
 {
   .configuration =
   {
