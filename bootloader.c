@@ -69,6 +69,7 @@ static const uint32_t dfu_status_choices[4] =
   0x00000000, 0x00000002, /* normal */
   0x00000000, 0x00000005, /* dl */
 };
+static const uint32_t* dfu_status = dfu_status_choices + 0;
 
 static udc_mem_t udc_mem[USB_EPT_NUM];
 static uint32_t udc_ctrl_in_buf[FLASH_PAGE_SIZE/sizeof(uint32_t)];
@@ -76,7 +77,6 @@ static uint32_t udc_ctrl_out_buf[FLASH_PAGE_SIZE/sizeof(uint32_t)];
 
 static uint32_t usb_config = 0;
 static uint32_t dfu_addr;
-static const uint32_t* dfu_status = dfu_status_choices + 0;
 
 /*- Implementations ---------------------------------------------------------*/
 
@@ -124,21 +124,39 @@ static void nvmctrl_erase_row(uint32_t addr)
     nvmctrl_wait_ready();
 }
 #elif __SAMD51__
+static void nvmctrl_erase_block(uint32_t dst) 
+{
+    //@todo Necessary?
+    //nvmctrl_wait_ready();
 
+    // Execute "ER" Erase Row
+    NVMCTRL->ADDR.reg = dst;
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
+    nvmctrl_wait_ready();
+}
 #endif
 
 
 static void dfuDownloadToNvm()
 {
-    // Erase page before write
-    // @todo Only erase if content differs?
-#if __SAMD11__
-    if (0 == ((dfu_addr >> 6) & 0x3))
+#if __SAMD11__ 
+    /** The NVM is organized into rows, where each row contains four pages
+        The NVM has a rowerase granularity, while the write granularity is by page. In other words, a single row erase will erase all four pages in
+        the row, while four write operations are used to write the complete row.
+        */
+    if (0 == (dfu_addr% NVMCTRL_ROW_SIZE))
     {
+        /// @todo Cache row and only erase if content differs to save wear
         nvmctrl_erase_row(dfu_addr);
     }
+    // @note "WP" Write page and "PBC" Page Buffer Clear are not necessary while NVMCTRL->CTRLB.bit.MANW == 0;
 #elif __SAMD51__
-#error "Todo: implement NVM write for Samd51"
+    /// erase at start of new block
+    if (0 == (dfu_addr % NVMCTRL_BLOCK_SIZE))
+    {
+        /// @todo Cache row and only erase if content differs to save wear
+        nvmctrl_erase_block(dfu_addr);
+    }
 #else
 #error "Unsupported processor class"s
 #endif
@@ -339,7 +357,47 @@ static void configureClock()
     while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY);
 #endif
 #elif __SAMD51__
-#error "Not implemented"
+    // Automatic wait states.
+    NVMCTRL->CTRLA.bit.AUTOWS = 1;
+
+    // Temporarily switch the CPU to the internal 32k oscillator while we reconfigure the DFLL.
+    GCLK->GENCTRL[0].reg = GCLK_GENCTRL_SRC(GCLK_GENCTRL_SRC_OSCULP32K) |
+        GCLK_GENCTRL_OE |
+        GCLK_GENCTRL_GENEN;
+
+    while (GCLK->SYNCBUSY.bit.GENCTRL0);
+    OSCCTRL->DFLLCTRLA.reg = 0;// Configure the DFLL for USB clock recovery.
+
+    OSCCTRL->DFLLMUL.reg = OSCCTRL_DFLLMUL_CSTEP(0x1) |
+        OSCCTRL_DFLLMUL_FSTEP(0x1) |
+        OSCCTRL_DFLLMUL_MUL(0xBB80);
+
+    while (OSCCTRL->DFLLSYNC.bit.DFLLMUL);
+
+    OSCCTRL->DFLLCTRLB.reg = 0;
+    while (OSCCTRL->DFLLSYNC.bit.DFLLCTRLB);
+
+    OSCCTRL->DFLLCTRLA.bit.ENABLE = true;
+    while (OSCCTRL->DFLLSYNC.bit.ENABLE);
+
+    OSCCTRL->DFLLVAL.reg = OSCCTRL->DFLLVAL.reg;
+    while (OSCCTRL->DFLLSYNC.bit.DFLLVAL);
+
+    OSCCTRL->DFLLCTRLB.reg = OSCCTRL_DFLLCTRLB_WAITLOCK |
+        OSCCTRL_DFLLCTRLB_CCDIS | OSCCTRL_DFLLCTRLB_USBCRM;
+
+    while (!OSCCTRL->STATUS.bit.DFLLRDY);
+
+    // 5) Switch Generic Clock Generator 0 to DFLL48M. CPU will run at 48MHz.
+    GCLK->GENCTRL[0].reg =
+        GCLK_GENCTRL_SRC(GCLK_GENCTRL_SRC_DFLL) |
+        GCLK_GENCTRL_IDC |
+        GCLK_GENCTRL_OE |
+        GCLK_GENCTRL_GENEN;
+
+    while (GCLK->SYNCBUSY.bit.GENCTRL0);
+
+    MCLK->CPUDIV.reg = MCLK_CPUDIV_DIV_DIV1;
 #else
 #error "Unsupported processor class"
 #endif
@@ -350,8 +408,7 @@ static bool userImageCrc()
 #if __SAMD11__ 
     PAC1->WPCLR.reg = 2; /* clear DSU */
 #elif __SAMD51__
-    //@todo needed for SAMD51?
-    ///PAC1->WPCLR.reg = 2; /* clear DSU */
+    PAC->WRCTRL.reg = PAC_WRCTRL_PERID(ID_DSU) | PAC_WRCTRL_KEY_CLR;
 #else
 #error "Unsupported processor class"
 #endif
