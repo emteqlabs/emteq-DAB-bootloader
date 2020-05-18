@@ -6,3 +6,4 @@ D11bootloader THUMB Release/*
 *.hzs
 make/build/*
 
+/.vs

@@ -39,6 +39,7 @@ NOTES:
 #include <stdbool.h>
 #include <string.h>
 #include <sam.h>
+#include "common.h"
 #include "dfu.h"
 #include "usb.h"
 #include "nvm_data.h"
@@ -77,6 +78,37 @@ static uint32_t dfu_addr;
 
 /*- Implementations ---------------------------------------------------------*/
 
+/// red LED
+static void bootloaderStarted()
+{
+    // LEDs on PA07 & PA08
+    PORT->Group[0].DIRSET.reg = (1 << 8) | (1 << 7); // Set pin to output mode
+    PORT->Group[0].PINCFG[7].reg = PORT->Group[0].PINCFG[8].reg = (uint8_t)(PORT_PINCFG_INEN);
+
+    PORT->Group[0].OUTSET.reg = (1 << 8); // OFF:Drive HIGH
+    PORT->Group[0].OUTCLR.reg = (1 << 7); // ON: Drive low
+}
+
+/// Red LED
+static void dfuStarted()
+{
+    PORT->Group[0].OUTSET.reg = (1 << 8); // OFF:Drive HIGH
+    PORT->Group[0].OUTCLR.reg = (1 << 7); // ON: Drive low
+}
+
+/// Yellow LED
+static void dfuUsbActive()
+{
+    PORT->Group[0].OUTCLR.reg = (1 << 7) | (1 << 8); // ON: Drive low
+}
+
+/// Green LED
+static void userAppStarted()
+{
+    PORT->Group[0].OUTSET.reg = (1 << 7); // OFF:Drive HIGH
+    PORT->Group[0].OUTCLR.reg = (1 << 8); // ON: Drive low
+}
+
 //-----------------------------------------------------------------------------
 static void udc_control_send(const uint8_t* const data, const uint32_t size)
 {
@@ -95,6 +127,8 @@ static void udc_control_send(const uint8_t* const data, const uint32_t size)
      /* && !USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRFAIL1*/);
 }
 
+
+
 //-----------------------------------------------------------------------------
 static void udc_control_send_zlp(void)
 {
@@ -112,14 +146,26 @@ static void nvmctrl_wait_ready()
 #endif
 }
 
+/** Write of an incomplete quad-word (SAMD1) or row (SAMD11) must be flushed explicitly 
+*/
+static void nvmctrl_write_flush()
+{
+    //Check if written up to a page boundary i.e. Automatic page-write shall have occured
+    if (0 == (dfu_addr % NVMCTRL_PAGE_SIZE))
+        return;
+
+    nvmctrl_wait_ready();
+
+    //Page size: NVMCTRL_PAGE_SIZE==512 on SAMD51 and NVMCTRL_PAGE_SIZE==64 on SAMD11
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WP;
+    nvmctrl_wait_ready();
+}
+
 #if __SAMD11__
 static void nvmctrl_erase_row(uint32_t addr) 
 {
-    //@todo Necessary?
-    nvmctrl_wait_ready();
-    NVMCTRL->STATUS.reg = NVMCTRL_STATUS_MASK;
-
     //Execute Erase-Row command
+    // @note A row contains 4 pages
     NVMCTRL->ADDR.reg = addr / 2;
     NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
     nvmctrl_wait_ready();
@@ -127,10 +173,7 @@ static void nvmctrl_erase_row(uint32_t addr)
 #elif __SAMD51__
 static void nvmctrl_erase_block(uint32_t dst) 
 {
-    //@todo Necessary?
-    //nvmctrl_wait_ready();
-
-    // Execute "ER" Erase Row
+    // Execute "EB" Erase block (8K region to 0xFFFF)
     NVMCTRL->ADDR.reg = dst;
     NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
     nvmctrl_wait_ready();
@@ -140,7 +183,7 @@ static void nvmctrl_erase_block(uint32_t dst)
 
 static void dfuDownloadToNvm()
 {
-#if 1 //< Development - save nvm erase cycles!
+    /// @todo MUST store in RAM before writing so we only do an erase if necessary
 #if __SAMD11__ 
     /** The NVM is organized into rows, where each row contains four pages
         The NVM has a rowerase granularity, while the write granularity is by page. In other words, a single row erase will erase all four pages in
@@ -154,6 +197,7 @@ static void dfuDownloadToNvm()
     // @note "WP" Write page and "PBC" Page Buffer Clear are not necessary while NVMCTRL->CTRLB.bit.MANW == 0;
 #elif __SAMD51__
     /// erase at start of new block
+    /// @todo Could erase at end of current block only/if block content changes etc
     if (0 == (dfu_addr % NVMCTRL_BLOCK_SIZE))
     {
         /// @todo Cache row and only erase if content differs to save wear
@@ -170,12 +214,10 @@ static void dfuDownloadToNvm()
         *nvm_addr++ = *ram_addr++;
 
     nvmctrl_wait_ready();
-#endif
 }
 
-static bool userImageCrc()
+static bool checkCrcRegion( const uint32_t address, const uint32_t length )
 {
-
 #if __SAMD11__ 
     PAC1->WPCLR.reg = 2; /* clear DSU */
 #elif __SAMD51__
@@ -184,32 +226,50 @@ static bool userImageCrc()
 #error "Unsupported processor class"
 #endif
 
-    /// @todo Put in common location shared with dx1elf2dfu
-    /// @note userAppCrcEmbedOffset = 0x20 reserved application vector where the CRC value is stored 
-    static const uint32_t userAppLengthEmbedOffset = 0x1C; /* reserved application vector where the application size is stored */
-    /** Reserved vectors:
-    * - SAMD11 0x10 - 0x2C
-    * - SAMD51 0x1C - 0x2C
-    */
-
-    static const bool userAppCrcEmbed = false; ///@todo Configure via parameter/platform!
-    const uint32_t userAppStart = 0x2000; /// start CRC check at beginning of user app  @todo Configure based on platform / variant etc
-    const uint32_t userAppLength = *(volatile uint32_t*)(userAppStart + userAppLengthEmbedOffset);
-
-    //If user-app is 0 bytes or extends past end of available flash then it must be invalid
-    if ((userAppLength == 0)
-        || (userAppLength > (FLASH_SIZE - userAppStart)))
-        return false;
-
-    DSU->ADDR.reg = userAppStart;
-    DSU->LENGTH.reg = userAppLength; /* use length encoded into unused vector address in user app */
+    DSU->ADDR.reg = address;
+    DSU->LENGTH.reg = length; /* use length encoded into unused vector address in user app */
 
     /* ask DSU to compute CRC */
+    DSU->STATUSA.bit.DONE = true;
     DSU->DATA.reg = 0xFFFFFFFF;
     DSU->CTRL.bit.CRC = 1;
     while (!DSU->STATUSA.bit.DONE);
 
-    return !(DSU->DATA.reg);
+    const uint16_t dsuCrcData = DSU->DATA.reg;
+
+    return dsuCrcData == 0 && !(DSU->STATUSA.bit.PERR || DSU->STATUSA.bit.BERR);
+}
+
+const volatile uint32_t* userAppResetVector = (volatile uint32_t*)(userAppAddress + userAppResetVectorOffset);
+const volatile uint32_t* userAppCrcVector = (volatile uint32_t*)(userAppAddress + userAppCrcEmbedOffset);
+const volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(userAppAddress + userAppLengthEmbedOffset);
+
+static bool userImageValid()
+{
+    /// Check on the Reset_Handler address
+    const uint32_t currentUserAppResetVector = *userAppResetVector;
+    if ( (currentUserAppResetVector < userAppAddress)
+      || (currentUserAppResetVector > FLASH_SIZE) ) 
+    {
+        return false;
+    }
+
+    // If we don't use CRC then assume it must e correct!
+    if ( !userAppCrcEmbed )
+      return true;
+
+    //If user-app CRC is 0 then we assume invalid image
+    const uint32_t userAppCrc = *userAppCrcVector;
+    if (userAppCrc == 0)
+        return false;
+
+    //If user-app is 0 bytes or extends past end of available flash then it must be invalid
+    const uint32_t userAppLength = *userAppLengthVector;
+    if ((userAppLength == 0)
+        || (userAppLength > (FLASH_SIZE - userAppAddress)))
+        return false;
+
+    return checkCrcRegion(userAppAddress, userAppLength);
 }
 
 static void USB_Service(void)
@@ -300,9 +360,10 @@ static void USB_Service(void)
         USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
         break;
       case USB_SET_ADDRESS:
-        udc_control_send_zlp();
-        USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN | USB_DEVICE_DADD_DADD(request->wValue);
-        break;
+          dfuUsbActive();
+          udc_control_send_zlp();
+          USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN | USB_DEVICE_DADD_DADD(request->wValue);
+          break;
       case USB_SET_CONFIGURATION:
         usb_config = request->wValue;
         dfu_status.bState = dfuIDLE;
@@ -328,10 +389,11 @@ static void USB_Service(void)
           }
           else //< "Completion packet" 6.1.1.1 Zero Length DFU_DNLOAD Request 
           {
-              /// @todo page flush?
-              if (userImageCrc())
+              nvmctrl_write_flush();
+
+              if (userImageValid())
               {
-                  dfu_status.bState = dfuIDLE;
+                  dfu_status.bState = dfuMANIFEST_SYNC;
               }
               else
               {
@@ -583,30 +645,38 @@ static void initializeUsb()
     USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
 }
 
+
 void bootloader(void)
 {
-    // LEDs on PA07 & PA08
-    PORT->Group[0].DIRSET.reg = (1 << 8) | (1 << 7); // Set pin to output mode
-    PORT->Group[0].DIRSET.reg = (1 << 8) | (1 << 7); // Set pin to output mode
-    PORT->Group[0].PINCFG[7].reg = PORT->Group[0].PINCFG[8].reg = (uint8_t)(PORT_PINCFG_INEN);
-
-    PORT->Group[0].OUTSET.reg = (1 << 8); // OFF:Drive HIGH
-    PORT->Group[0].OUTCLR.reg = (1 << 7); // ON: Drive low
+    bootloaderStarted();
 
     configureClock();
 
 #if 1
-    if (userImageCrc()
+    if (userImageValid()
         && !bootloaderUserEntry())
     {
-        PORT->Group[0].OUTSET.reg = (1 << 7); // OFF:Drive HIGH
-        PORT->Group[0].OUTCLR.reg = (1 << 8); // ON: Drive low
+        userAppStarted();
 
+#if 0
+        // Rebase the Stack Pointer
+        __set_MSP(*(uint32_t*)userAppAddress);
+
+        // Rebase the vector table base address
+        SCB->VTOR = (userAppAddress & SCB_VTOR_TBLOFF_Msk);
+
+        /// Jump to application Reset Handler in the application
+        const uint32_t currentUserAppResetVector = *userAppResetVector;
+        asm("bx %0" ::"r"(currentUserAppResetVector));
+
+        //ldr r0, = &SCB->VTOR /* VTOR register */
+       // asm("ldr r1, =%0\n" : : "r"(userAppAddress)); /* origin of user app @todo Configure based on platform/variant etc*/
+#endif
         return;
     }
 #endif
 
-    PORT->Group[0].OUTCLR.reg = (1 << 8); // ON: Drive low
+    dfuStarted();
 
 #ifdef USE_DBL_TAP
   /* a 'double tap' has happened, so run bootloader */
@@ -619,9 +689,8 @@ void bootloader(void)
  // NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
  // NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
 
-  /// Automatic Quad-word write
-  /// @todo Clean up!
-  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_AQW_Val;
+  /// @todo Clean up! Automatic Page or Quad-word write?
+  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_AP_Val;
 #endif
 
   initializeUsb();

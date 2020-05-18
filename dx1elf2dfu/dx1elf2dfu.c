@@ -33,21 +33,8 @@
 #include <stdint.h>
 #include <malloc.h>
 #include <string.h>
+#include "../common.h"
 
-///@todo Configure via parameter/platform!
-#define USB_VENDOR_ID  0x04D8
-#define USB_PRODUCT_ID 0xEC5A
-
-///@todo Configure via parameter/platform!
-static const uint32_t origin_addr = 0x2000; //< 8KiB  /* origin of the application (first address available after the bootloader) */
-
-static const bool userAppCrcEmbed = false; ///@todo Configure via parameter/platform!
-static const uint32_t userAppLengthEmbedOffset = 0x1C; /* reserved application vector where the application size is stored */
-static const uint32_t userAppCrcEmbedOffset = 0x20; /* reserved application vector where the CRC value is stored */
-/** Reserved vectors:
-* - SAMD11 0x10 - 0x2C
-* - SAMD51 0x1C - 0x2C
-*/
 
 typedef struct Elf32_Ehdr
 {
@@ -389,8 +376,9 @@ static uint32_t reverse_crc32_calc(uint32_t crc, const uint8_t *buffer, uint32_t
 static uint32_t calc_span(uint32_t prior_crc, uint32_t post_crc)
 {
 	int index;
-	uint8_t byte;
-	uint32_t span, table;
+	uint8_t byte = 0;
+	uint32_t span = 0;
+	uint32_t table = 0;
 
 	for (index = 3; index >= 0; index--)
 	{
@@ -502,15 +490,15 @@ int main(int argc, char *argv[])
 
 	/// @todo Allow relocation via parameter?
 	int blobOffset = 0;
-	if (blob->address < origin_addr)
+	if (blob->address < userAppAddress)
 	{
-		printf("WARNING: provided ELF intrudes into bootloader space; DFU shall be relocated to 0x%x\n", origin_addr);
-		blobOffset = origin_addr - blob->address;
+		printf("WARNING: provided ELF intrudes into bootloader space; DFU shall be relocated to 0x%x\n", userAppAddress);
+		blobOffset = userAppAddress - blob->address;
 	}
 	else
-	if (blob->address != origin_addr)
+	if (blob->address != userAppAddress)
 	{
-		printf("ERROR: provided ELF must start at 0x%x; DFU cannot be created\n", origin_addr);
+		printf("ERROR: provided ELF must start at 0x%x; DFU cannot be created\n", userAppAddress);
 		return -1;
 	}
 
@@ -521,7 +509,7 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	blob = pm_list; phy_addr = origin_addr;
+	blob = pm_list; phy_addr = userAppAddress;
 
 	while (blob)
 	{
@@ -540,7 +528,7 @@ int main(int argc, char *argv[])
 		blob = blob->next;
 	}
 
-	max_offset = phy_addr - origin_addr;
+	max_offset = phy_addr - userAppAddress;
 
 	/* check if program image ends on a 32-bit boundary */
 	if (phy_addr & 0x3)
@@ -561,27 +549,29 @@ int main(int argc, char *argv[])
 	while (pm_list)
 	{
 		blob = pm_list;
-		memcpy(binary + blob->address + blobOffset - origin_addr, blob->data, blob->count);
+		memcpy(binary + blob->address + blobOffset - userAppAddress, blob->data, blob->count);
 		pm_list = pm_list->next;
 		free(blob);
 	}
 
-	/*
-	as a sanity check, we check what the value is of the vector entry we over-write with the length
-	*/
-
-	stuff_size  = (uint32_t)binary[userAppLengthEmbedOffset + 3] << 24;
-	stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 2] << 16;
-	stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 1] << 8;
-	stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 0] << 0;
-
-	if ( stuff_size && (stuff_size != max_offset) )
-	{
-		printf("WARNING: overwriting 0x%x at 0x%x with length value (0x%x)\n", stuff_size, origin_addr + userAppLengthEmbedOffset, max_offset);
-	}
-
 	if (userAppCrcEmbed)
 	{
+	    ///as a sanity check, we check what the value is of the vector entry we over-write with the length	
+		stuff_size  = (uint32_t)binary[userAppLengthEmbedOffset + 3] << 24;
+		stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 2] << 16;
+		stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 1] << 8;
+		stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 0] << 0;
+
+		///Check ELF does not have user-app length pre-embedded
+		if ( stuff_size != max_offset )
+		{
+			printf("%s: overwriting 0x%x at 0x%x with length value (0x%x)\n"
+				, (stuff_size != 0 ? "WARNING" : "INFO")
+				, stuff_size
+				, userAppAddress + userAppLengthEmbedOffset
+				, max_offset );
+		}
+
 		/* store app length within application itself */
 		binary[userAppLengthEmbedOffset + 0] = (uint8_t)(max_offset >> 0);
 		binary[userAppLengthEmbedOffset + 1] = (uint8_t)(max_offset >> 8);
@@ -606,9 +596,14 @@ int main(int argc, char *argv[])
 		stuff_size |= (uint32_t)binary[userAppCrcEmbedOffset + 1] << 8;
 		stuff_size |= (uint32_t)binary[userAppCrcEmbedOffset + 0] << 0;
 
-		if ( stuff_size && (stuff_size != span) )
+		///Check ELF does not have CRC span pre-embedded
+		if ( stuff_size != span )
 		{
-			printf("WARNING: overwriting 0x%x at 0x%x with CRC value (0x%x)\n", stuff_size, origin_addr + userAppCrcEmbedOffset, span);
+			printf("%s: overwriting 0x%x at 0x%x with CRC value (0x%x)\n"
+				, (stuff_size!= 0 ? "WARNING" : "INFO")
+				, stuff_size
+				, userAppAddress + userAppCrcEmbedOffset
+				, span);
 		}
 
 		/* store app CRC within application itself */
@@ -647,10 +642,10 @@ int main(int argc, char *argv[])
 	i = 0;
 	scratchpad[i++] = 0xFF; // bcdDevice
 	scratchpad[i++] = 0xFF;
-	scratchpad[i++] = (uint8_t)(USB_PRODUCT_ID >> 0); // idProduct
-	scratchpad[i++] = (uint8_t)(USB_PRODUCT_ID >> 8);
-	scratchpad[i++] = (uint8_t)(USB_VENDOR_ID >> 0); // idVendor
-	scratchpad[i++] = (uint8_t)(USB_VENDOR_ID >> 8);
+	scratchpad[i++] = (uint8_t)(usbProductId >> 0); // idProduct
+	scratchpad[i++] = (uint8_t)(usbProductId >> 8);
+	scratchpad[i++] = (uint8_t)(usbVendorId >> 0); // idVendor
+	scratchpad[i++] = (uint8_t)(usbVendorId >> 8);
 	scratchpad[i++] = 0x00; // bcdDFU
 	scratchpad[i++] = 0x01;
 	scratchpad[i++] = 'U'; // ucDfuSignature

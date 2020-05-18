@@ -29,6 +29,7 @@
 
 /*- Includes ----------------------------------------------------------------*/
 #include <sam.h>
+#include "common.h"
 #include "usb.h"
 #include "usb_descriptors.h"
 
@@ -44,8 +45,8 @@ usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))) = /*
   .bDeviceProtocol        = 0,
 
   .bMaxPacketSize0        = 64,
-  .idVendor               = 0x04D8,
-  .idProduct              = 0xEC5A,
+  .idVendor               = usbVendorId,
+  .idProduct              = usbProductId,
   .bcdDevice              = 0x0105,
 
   .iManufacturer          = USB_STR_ZERO,
