@@ -34,12 +34,20 @@
 #include <malloc.h>
 #include <string.h>
 
-#define USB_VENDOR_ID  0x1209
-#define USB_PRODUCT_ID 0x2003
+///@todo Configure via parameter/platform!
+#define USB_VENDOR_ID  0x04D8
+#define USB_PRODUCT_ID 0xEC5A
 
-static const uint32_t origin_addr = 0x400; /* origin of the application (first address available after the bootloader) */
-static const uint32_t app_len_offset = 0x10; /* reserved application vector where the application size is stored */
-static const uint32_t app_crc_offset = 0x14; /* reserved application vector where the CRC value is stored */
+///@todo Configure via parameter/platform!
+static const uint32_t origin_addr = 0x2000; //< 8KiB  /* origin of the application (first address available after the bootloader) */
+
+static const bool userAppCrcEmbed = false; ///@todo Configure via parameter/platform!
+static const uint32_t userAppLengthEmbedOffset = 0x1C; /* reserved application vector where the application size is stored */
+static const uint32_t userAppCrcEmbedOffset = 0x20; /* reserved application vector where the CRC value is stored */
+/** Reserved vectors:
+* - SAMD11 0x10 - 0x2C
+* - SAMD51 0x1C - 0x2C
+*/
 
 typedef struct Elf32_Ehdr
 {
@@ -492,12 +500,14 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	/// @todo Allow relocation via parameter?
+	int blobOffset = 0;
 	if (blob->address < origin_addr)
 	{
-		printf("ERROR: provided ELF intrudes into bootloader space; DFU cannot be created\n");
-		return -1;
+		printf("WARNING: provided ELF intrudes into bootloader space; DFU shall be relocated to 0x%x\n", origin_addr);
+		blobOffset = origin_addr - blob->address;
 	}
-
+	else
 	if (blob->address != origin_addr)
 	{
 		printf("ERROR: provided ELF must start at 0x%x; DFU cannot be created\n", origin_addr);
@@ -515,7 +525,7 @@ int main(int argc, char *argv[])
 
 	while (blob)
 	{
-		stuff_size = blob->address - phy_addr;
+		stuff_size = blob->address + blobOffset - phy_addr;
 
 		if (stuff_size)
 		{
@@ -524,7 +534,7 @@ int main(int argc, char *argv[])
 		}
 
 		/* figure the best-case starting point of the next blob */
-		phy_addr = blob->address + blob->count;
+		phy_addr = blob->address + blobOffset + blob->count;
 
 		/* advance to next blob */
 		blob = blob->next;
@@ -551,7 +561,7 @@ int main(int argc, char *argv[])
 	while (pm_list)
 	{
 		blob = pm_list;
-		memcpy(binary + blob->address - origin_addr, blob->data, blob->count);
+		memcpy(binary + blob->address + blobOffset - origin_addr, blob->data, blob->count);
 		pm_list = pm_list->next;
 		free(blob);
 	}
@@ -560,57 +570,65 @@ int main(int argc, char *argv[])
 	as a sanity check, we check what the value is of the vector entry we over-write with the length
 	*/
 
-	stuff_size  = (uint32_t)binary[app_len_offset + 3] << 24;
-	stuff_size |= (uint32_t)binary[app_len_offset + 2] << 16;
-	stuff_size |= (uint32_t)binary[app_len_offset + 1] << 8;
-	stuff_size |= (uint32_t)binary[app_len_offset + 0] << 0;
+	stuff_size  = (uint32_t)binary[userAppLengthEmbedOffset + 3] << 24;
+	stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 2] << 16;
+	stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 1] << 8;
+	stuff_size |= (uint32_t)binary[userAppLengthEmbedOffset + 0] << 0;
 
 	if ( stuff_size && (stuff_size != max_offset) )
 	{
-		printf("WARNING: overwriting 0x%x at 0x%x with length value (0x%x)\n", stuff_size, origin_addr + app_len_offset, max_offset);
+		printf("WARNING: overwriting 0x%x at 0x%x with length value (0x%x)\n", stuff_size, origin_addr + userAppLengthEmbedOffset, max_offset);
 	}
 
-	/* store app length within application itself */
-	binary[app_len_offset + 0] = (uint8_t)(max_offset >> 0);
-	binary[app_len_offset + 1] = (uint8_t)(max_offset >> 8);
-	binary[app_len_offset + 2] = (uint8_t)(max_offset >> 16);
-	binary[app_len_offset + 3] = (uint8_t)(max_offset >> 24);
-
-	/*
-	perform the calculation to determine what 32-bit value to write 
-	in order to cause the overall CRC32 to calculate to be zero
-	*/
-
-	pre_crc = crc32_calc(0xFFFFFFFF /* starting CRC value */, binary, app_crc_offset);
-	post_crc = reverse_crc32_calc(0 /* desired end value */, binary + app_crc_offset + 4, max_offset - (app_crc_offset + 4));
-	span = calc_span(pre_crc, post_crc);
-
-	/*
-	as a sanity check, we check what the value is of the vector entry we over-write with the CRC32
-	*/
-
-	stuff_size  = (uint32_t)binary[app_crc_offset + 3] << 24;
-	stuff_size |= (uint32_t)binary[app_crc_offset + 2] << 16;
-	stuff_size |= (uint32_t)binary[app_crc_offset + 1] << 8;
-	stuff_size |= (uint32_t)binary[app_crc_offset + 0] << 0;
-
-	if ( stuff_size && (stuff_size != span) )
+	if (userAppCrcEmbed)
 	{
-		printf("WARNING: overwriting 0x%x at 0x%x with CRC value (0x%x)\n", stuff_size, origin_addr + app_crc_offset, span);
+		/* store app length within application itself */
+		binary[userAppLengthEmbedOffset + 0] = (uint8_t)(max_offset >> 0);
+		binary[userAppLengthEmbedOffset + 1] = (uint8_t)(max_offset >> 8);
+		binary[userAppLengthEmbedOffset + 2] = (uint8_t)(max_offset >> 16);
+		binary[userAppLengthEmbedOffset + 3] = (uint8_t)(max_offset >> 24);
+
+		/*
+		perform the calculation to determine what 32-bit value to write 
+		in order to cause the overall CRC32 to calculate to be zero
+		*/
+
+		pre_crc = crc32_calc(0xFFFFFFFF /* starting CRC value */, binary, userAppCrcEmbedOffset);
+		post_crc = reverse_crc32_calc(0 /* desired end value */, binary + userAppCrcEmbedOffset + 4, max_offset - (userAppCrcEmbedOffset + 4));
+		span = calc_span(pre_crc, post_crc);
+
+		/*
+		as a sanity check, we check what the value is of the vector entry we over-write with the CRC32
+		*/
+
+		stuff_size  = (uint32_t)binary[userAppCrcEmbedOffset + 3] << 24;
+		stuff_size |= (uint32_t)binary[userAppCrcEmbedOffset + 2] << 16;
+		stuff_size |= (uint32_t)binary[userAppCrcEmbedOffset + 1] << 8;
+		stuff_size |= (uint32_t)binary[userAppCrcEmbedOffset + 0] << 0;
+
+		if ( stuff_size && (stuff_size != span) )
+		{
+			printf("WARNING: overwriting 0x%x at 0x%x with CRC value (0x%x)\n", stuff_size, origin_addr + userAppCrcEmbedOffset, span);
+		}
+
+		/* store app CRC within application itself */
+		binary[userAppCrcEmbedOffset + 0] = (uint8_t)(span >> 0);
+		binary[userAppCrcEmbedOffset + 1] = (uint8_t)(span >> 8);
+		binary[userAppCrcEmbedOffset + 2] = (uint8_t)(span >> 16);
+		binary[userAppCrcEmbedOffset + 3] = (uint8_t)(span >> 24);
+
+		stuff_size = crc32_calc(0xFFFFFFFF, binary, max_offset);
+
+		if (stuff_size)
+		{
+			printf("ERROR: something has gone wrong with the CRC calculation; value was 0x%x\n", stuff_size);
+			return -1;
+		}
+
 	}
-
-	/* store app CRC within application itself */
-	binary[app_crc_offset + 0] = (uint8_t)(span >> 0);
-	binary[app_crc_offset + 1] = (uint8_t)(span >> 8);
-	binary[app_crc_offset + 2] = (uint8_t)(span >> 16);
-	binary[app_crc_offset + 3] = (uint8_t)(span >> 24);
-
-	stuff_size = crc32_calc(0xFFFFFFFF, binary, max_offset);
-
-	if (stuff_size)
+	else
 	{
-		printf("ERROR: something has gone wrong with the CRC calculation; value was 0x%x\n", stuff_size);
-		return -1;
+		printf("INFO: CRC not embedded within image\n");
 	}
 
 	/* start the DFU CRC32 calculation */
