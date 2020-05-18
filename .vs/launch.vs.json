@@ -1,0 +1,26 @@
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+        "type": "default",
+        "project": "dx1elf2dfu\\dx1elf2dfu.exe",
+        "name": "dx1elf2dfu - bootloader",
+        "stopOnEntry": false,
+        "args": [
+            "${workspaceRoot}\\make\\bin\\DfuBootloader${cpp.activeConfiguration}_d.elf",
+            "${workspaceRoot}\\make\\bin\\DfuBootloader${cpp.activeConfiguration}_d.dfu"
+        ]
+    },
+    {
+        "type": "default",
+        "project": "dx1elf2dfu\\dx1elf2dfu.exe",
+        "name": "dx1elf2dfu - sketch_may15d",
+        "stopOnEntry": false,
+        "args": [
+            "${workspaceRoot}\\dx1elf2dfu\\sketch_may15d.ino.elf",
+            "${workspaceRoot}\\dx1elf2dfu\\sketch_may15d.ino.dfu"
+        ]
+    }
+  ]
+}
