@@ -74,7 +74,7 @@ zero_loop:
 
   /* if bootloader returns, we proceed to the user app */
 
-  ldr r1, =0x400 /* origin of user app */
+  ldr r1, =0x2000 /* origin of user app @todo Configure based on platform/variant etc*/ 
   ldr r0, =0xE000ED08 /* VTOR register */
   str r1, [r0] /* point VTOR to user app */
   ldr r0, [r1] /* load stack pointer from user app */
