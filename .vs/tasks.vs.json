@@ -1,0 +1,72 @@
+{
+  "version": "0.2.1",
+    "tasks": [
+        {
+            "taskName": "bootloader",
+            "appliesTo": "make/Makefile",
+            "type": "launch",
+            "contextType": "build",
+            "inheritEnvironments": [
+                "${cpp.activeConfiguration}"
+            ],
+            "command": "make",
+            "args": [
+                "-C make/",
+                "DEBUG=1",
+                "${cpp.activeConfiguration}"
+            ]
+        },
+        {
+            "taskName": "bootloader-clean",
+            "appliesTo": "make/Makefile",
+            "type": "launch",
+            "contextType": "clean",
+            "command": "make",
+            "args": [
+                "-C make/ clean",
+                "TARGET=${cpp.activeConfiguration}"
+            ]
+        },
+        {
+            "taskName": "bootloader-rebuild",
+            "appliesTo": "make/Makefile",
+            "type": "launch",
+            "contextType": "rebuild",
+            "commands": [
+                {
+                    "command": "make",
+                    "args": [
+                        "-C make/ clean",
+                        "TARGET=${cpp.activeConfiguration}"
+                    ]
+                },
+                {
+                    "command": "make",
+                    "args": [
+                        "-C make/",
+                        "${cpp.activeConfiguration}"
+                    ]
+                }
+            ],
+            "envVars": {
+                "VSCMD_START_DIR": "\"${workspaceRoot}\""
+            }
+        },
+        {
+            "taskName": "dx1elf2dfu",
+            "appliesTo": "dx1elf2dfu/Makefile",
+            "contextType": "build",
+            "type": "launch",
+            "command": "make",
+            "inheritEnvironments": [
+                "msvc_x64"
+            ],
+            "args": [
+                "-C dx1elf2dfu/",
+                "CC=cl",
+                "LD=ld"
+            ],
+            "output": "dx1elf2dfu\\dx1elf2dfu.exe"
+        }
+    ]
+}
