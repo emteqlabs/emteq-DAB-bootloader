@@ -1,32 +1,60 @@
 ##############################################################################
-BUILD = build
-BIN = D11boot
+# Target device-Id must be first make parameter
+# Command-line examples:
+#		make
+#
+# [Default] 1) make SAMD11D14AM
+#			2) make SAMD51J19A
+#
+# Options:
+#       dfu  --Generate DFU image for writing bootloader to user-program address
+#		DEBUG=1 --Generate bootloader with debug symbols enabled
+
+ifndef TARGET
+MAKECMDGOALS?=SAMD11D14AM
+TARGET?=$(word 1, $(MAKECMDGOALS))
+endif
+
+BIN_DIR:=bin
+BUILD_DIR:=build\$(TARGET)
+
+RELEASE_SUFFIX:=#
+DEBUG_SUFFIX:=_d
+
+## BIN may be defined from make commandline i.e. make BIN=MyDfuBootloader
+ifndef BIN
+ifdef DEBUG
+BIN = DfuBootloader$(TARGET)$(DEBUG_SUFFIX)
+else
+BIN = DfuBootloader$(TARGET)$(RELEASE_SUFFIX)
+endif
+endif
 
 ##############################################################################
-.PHONY: all directory clean size
+.PHONY: all clean size dfu
 
-CC = arm-none-eabi-gcc
-STRIP = arm-none-eabi-strip
-OBJCOPY = arm-none-eabi-objcopy
-SIZE = arm-none-eabi-size
+CC= arm-none-eabi-gcc
+STRIP= arm-none-eabi-strip
+OBJCOPY= arm-none-eabi-objcopy
+SIZE= arm-none-eabi-size
+ELF2DFU=../dx1elf2dfu/dx1elf2dfu
 
 CFLAGS += -W -Wall --std=gnu99 -Os
 CFLAGS += -Wno-address-of-packed-member
 CFLAGS += -fno-diagnostics-show-caret
 CFLAGS += -fdata-sections -ffunction-sections
 CFLAGS += -funsigned-char -funsigned-bitfields
-CFLAGS += -mcpu=cortex-m0plus -mthumb
-CFLAGS += -MD -MP -MT $(BUILD)/$(*F).o -MF $(BUILD)/$(@F).d
+CFLAGS += -mthumb
+CFLAGS += -MD -MP -MT $(BUILD_DIR)/$(*F).o -MF $(BUILD_DIR)/$(@F).d
 
-LDFLAGS += -mcpu=cortex-m0plus -mthumb
+LDFLAGS += -mthumb
 LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -Wl,--script=../linker/samd11d14.ld
 
-# Command-line examples:
-#		make
-#
-# [Default] 1) make SAMD11D14AM
-#			2) make SAMD51J19A
+ifdef DEBUG
+CFLAGS += -g -O0
+LDFLAGS += -g -O0
+endif
 
 INCLUDES += \
   -I../include \
@@ -43,11 +71,11 @@ DEFINES += \
 CFLAGS += $(INCLUDES) $(DEFINES)
 ASFLAGS += $(CFLAGS)
 
-OBJS = $(addprefix $(BUILD)/, $(notdir %/$(subst .c,.o, $(SRCS))))
-OBJS += $(BUILD)/startup.o
+OBJS = $(addprefix $(BUILD_DIR)\, $(notdir %/$(subst .c,.o, $(SRCS))))
+OBJS += $(BUILD_DIR)/startup.o
 
-# Targets
-# @note Default target is the first target i.e. SAMD11D14AM
+.PHONY: default
+default: ${TARGET}
 
 # SAMD11
 .PHONY: SAMD11 SAMD11C14A SAMD11D14AM SAMD11D14AS SAMD11D14AU
@@ -57,6 +85,8 @@ SAMD11D14AS: DEFINES += -D__SAMD11D14AS__
 SAMD11D14AU: DEFINES += -D__SAMD11D14AU__
 SAMD11C14A SAMD11D14AM SAMD11D14AS SAMD11D14AU: SAMD11
 SAMD11: DEFINES += -D__SAMD11__ -DF_CPU=48000000
+SAMD11: CFLAGS += -mcpu=cortex-m0plus
+SAMD11: LDFLAGS += -mcpu=cortex-m0plus
 SAMD11: INCLUDES += -I../include/SAMD11
 
 # SAMD51
@@ -73,7 +103,10 @@ SAMD51N20A: DEFINES += -D__SAMD51N20A__
 SAMD51P19A: DEFINES += -D__SAMD51P19A__
 SAMD51P20A: DEFINES += -D__SAMD51P20A__
 SAMD51G18A SAMD51G19A SAMD51J18A SAMD51J19A SAMD51J19B SAMD51J20A SAMD51J20C SAMD51N19A SAMD51N20A SAMD51P19A SAMD51P20A: SAMD51
-SAMD51: DEFINES += -D__SAMD51__ -DF_CPU=120000000
+## @note Clocked at 48MHz in bootloader mode
+SAMD51: DEFINES += -D__SAMD51__ -DF_CPU=48000000
+SAMD51: CFLAGS += -mcpu=cortex-m4
+SAMD51: LDFLAGS += -mcpu=cortex-m4
 SAMD51: INCLUDES += -I../include/SAMD51
 
 info:
@@ -84,38 +117,45 @@ info:
 
 SAMD51 SAMD11: info all	
 
-all: $(BUILD) $(BUILD)/$(BIN).hex $(BUILD)/$(BIN).bin size
-
-$(BUILD)/$(BIN).elf: $(OBJS) $(BUILD)
-	@echo LD $@
-	@$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
-
-$(BUILD)/$(BIN).hex: $(BUILD)/$(BIN).elf
-	@echo OBJCOPY $@
-	@$(OBJCOPY) -O ihex $^ $@
-
-$(BUILD)/$(BIN).bin: $(BUILD)/$(BIN).elf
-	@echo OBJCOPY $@
-	@$(OBJCOPY) -O binary $^ $@
+all: $(BUILD_DIR) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin size
 
 %.o:
 	@echo CC $@
 	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SRCS)) -c -o $@
 
-$(BUILD)/startup.o: ../startup.s $(BUILD)
+$(BUILD_DIR)/startup.o: ../startup.s $(BUILD_DIR)
 	@echo CC $@
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
 
-$(BUILD):
+$(BIN_DIR)/$(BIN).elf: $(OBJS) $(BIN_DIR)
+	@echo LD $@
+	@$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
+
+$(BIN_DIR)/$(BIN).hex: $(BIN_DIR)/$(BIN).elf
+	@echo OBJCOPY $@
+	@$(OBJCOPY) -O ihex $^ $@
+
+$(BIN_DIR)/$(BIN).bin: $(BIN_DIR)/$(BIN).elf
+	@echo OBJCOPY $@
+	@$(OBJCOPY) -O binary $^ $@
+
+$(BUILD_DIR) $(BIN_DIR):
 	mkdir $@
 
-size: $(BUILD)/$(BIN).elf
+size: $(BIN_DIR)/$(BIN).elf
 	@echo size:
 	@$(SIZE) -t $^
+	
+dfu: $(BIN_DIR)/$(BIN).dfu
+
+$(BIN_DIR)/$(BIN).dfu: $(BIN_DIR)/$(BIN).elf
+	@echo size:
+	@$(ELF2DFU) $^ $@
 
 clean:
 	@echo clean
-	@-rmdir /S /Q $(BUILD)
+	@-rmdir /S /Q $(BUILD_DIR)
 
--include $(wildcard $(BUILD)/*.d)
+
+-include $(wildcard $(BUILD_DIR)/*.d)
 
