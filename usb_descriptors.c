@@ -33,7 +33,7 @@
 #include "usb_descriptors.h"
 
 /*- Variables ---------------------------------------------------------------*/
-const usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
+usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
 {
   .bLength            = sizeof(usb_device_descriptor_t),
   .bDescriptorType    = USB_DEVICE_DESCRIPTOR,
@@ -44,8 +44,8 @@ const usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))
   .bDeviceProtocol        = 0,
 
   .bMaxPacketSize0        = 64,
-  .idVendor               = 0x1209,
-  .idProduct              = 0x2003,
+  .idVendor               = 0x04D8,
+  .idProduct              = 0xEC5A,
   .bcdDevice              = 0x0105,
 
   .iManufacturer          = USB_STR_ZERO,
@@ -55,7 +55,7 @@ const usb_device_descriptor_t usb_device_descriptor __attribute__ ((aligned (4))
   .bNumConfigurations     = 1
 };
 
-const usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
+usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((aligned (4))) = /* MUST BE IN RAM for USB peripheral */
 {
   .configuration =
   {
@@ -88,7 +88,7 @@ const usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__ ((
     .bDescriptorType     = 33,
     .bmAttributes        = 3,
     .wDetachTimeout      = 0,
-    .wTransferSize       = NVMCTRL_PAGE_SIZE, ///< 64 on SAMD11 and 512 on SAMD51
+    .wTransferSize       = 64,// NVMCTRL_PAGE_SIZE, ///< 64 on SAMD11 and 512 on SAMD51
     .bcdDFU              = 0x100,
   },
 };
