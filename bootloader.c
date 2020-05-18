@@ -39,6 +39,7 @@ NOTES:
 #include <stdbool.h>
 #include <string.h>
 #include <sam.h>
+#include "dfu.h"
 #include "usb.h"
 #include "nvm_data.h"
 #include "usb_descriptors.h"
@@ -64,34 +65,34 @@ typedef struct
 } udc_mem_t;
 
 /*- Variables ---------------------------------------------------------------*/
-static const uint32_t dfu_status_choices[4] =
-{ 
-  0x00000000, 0x00000002, /* normal */
-  0x00000000, 0x00000005, /* dl */
-};
-static const uint32_t* dfu_status = dfu_status_choices + 0;
+static __attribute__((aligned(4))) dfu_getstatus_t dfu_status = { .bStatus = OK, .bState = dfuIDLE, .bwPollTimeout = {0,1,0} };
 
-static udc_mem_t udc_mem[USB_EPT_NUM];
-static uint32_t udc_ctrl_in_buf[FLASH_PAGE_SIZE/sizeof(uint32_t)];
-static uint32_t udc_ctrl_out_buf[FLASH_PAGE_SIZE/sizeof(uint32_t)];
+static __attribute__((aligned(4))) udc_mem_t udc_mem[USB_EPT_NUM];
+static __attribute__((aligned(4))) uint32_t udc_ctrl_in_buf[16];// NVMCTRL_PAGE_SIZE / sizeof(uint32_t)];
+static __attribute__((aligned(4))) uint32_t udc_ctrl_out_buf[16];//NVMCTRL_PAGE_SIZE /sizeof(uint32_t)];
 
-static uint32_t usb_config = 0;
+static uint8_t usb_status[2] = { 0, 0 };
+static uint8_t usb_config = 0;
 static uint32_t dfu_addr;
 
 /*- Implementations ---------------------------------------------------------*/
 
 //-----------------------------------------------------------------------------
-static void udc_control_send(const uint32_t* const data, const uint32_t size)
+static void udc_control_send(const uint8_t* const data, const uint32_t size)
 {
   /* USB peripheral *only* reads valid data from 32-bit aligned RAM locations */
   udc_mem[0].in.ADDR.reg = (uint32_t)data;
 
-  udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(size) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
+  udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(size) 
+      | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) 
+      | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
+  /// @ todo MULTI_PACKET_SIZE?
 
-  USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT1;
+  USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT1; //< clear
   USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.BK1RDY = 1;
 
-  while (0 == USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT1);
+  while (!USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT1
+     /* && !USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRFAIL1*/);
 }
 
 //-----------------------------------------------------------------------------
@@ -115,8 +116,8 @@ static void nvmctrl_wait_ready()
 static void nvmctrl_erase_row(uint32_t addr) 
 {
     //@todo Necessary?
-    //nvmctrl_wait_ready();
-    //NVMCTRL->STATUS.reg = NVMCTRL_STATUS_MASK;
+    nvmctrl_wait_ready();
+    NVMCTRL->STATUS.reg = NVMCTRL_STATUS_MASK;
 
     //Execute Erase-Row command
     NVMCTRL->ADDR.reg = addr / 2;
@@ -139,6 +140,7 @@ static void nvmctrl_erase_block(uint32_t dst)
 
 static void dfuDownloadToNvm()
 {
+#if 1 //< Development - save nvm erase cycles!
 #if __SAMD11__ 
     /** The NVM is organized into rows, where each row contains four pages
         The NVM has a rowerase granularity, while the write granularity is by page. In other words, a single row erase will erase all four pages in
@@ -158,26 +160,65 @@ static void dfuDownloadToNvm()
         nvmctrl_erase_block(dfu_addr);
     }
 #else
-#error "Unsupported processor class"s
+#error "Unsupported processor class"
 #endif
 
-    typedef uint16_t NvmWord;/// @todo Do we need to write in 16-bit chunks or 32bit okay?
+    typedef uint32_t NvmWord;/// @todo Do we need to write in 16-bit chunks or 32bit okay?
     NvmWord* nvm_addr = (NvmWord*)(dfu_addr);
     NvmWord* ram_addr = (NvmWord*)udc_ctrl_out_buf;
     for (unsigned i = 0; i < sizeof(udc_ctrl_out_buf) / sizeof(NvmWord); ++i)
         *nvm_addr++ = *ram_addr++;
 
     nvmctrl_wait_ready();
+#endif
+}
+
+static bool userImageCrc()
+{
+
+#if __SAMD11__ 
+    PAC1->WPCLR.reg = 2; /* clear DSU */
+#elif __SAMD51__
+    PAC->WRCTRL.reg = PAC_WRCTRL_PERID(ID_DSU) | PAC_WRCTRL_KEY_CLR;
+#else
+#error "Unsupported processor class"
+#endif
+
+    /// @todo Put in common location shared with dx1elf2dfu
+    /// @note userAppCrcEmbedOffset = 0x20 reserved application vector where the CRC value is stored 
+    static const uint32_t userAppLengthEmbedOffset = 0x1C; /* reserved application vector where the application size is stored */
+    /** Reserved vectors:
+    * - SAMD11 0x10 - 0x2C
+    * - SAMD51 0x1C - 0x2C
+    */
+
+    static const bool userAppCrcEmbed = false; ///@todo Configure via parameter/platform!
+    const uint32_t userAppStart = 0x2000; /// start CRC check at beginning of user app  @todo Configure based on platform / variant etc
+    const uint32_t userAppLength = *(volatile uint32_t*)(userAppStart + userAppLengthEmbedOffset);
+
+    //If user-app is 0 bytes or extends past end of available flash then it must be invalid
+    if ((userAppLength == 0)
+        || (userAppLength > (FLASH_SIZE - userAppStart)))
+        return false;
+
+    DSU->ADDR.reg = userAppStart;
+    DSU->LENGTH.reg = userAppLength; /* use length encoded into unused vector address in user app */
+
+    /* ask DSU to compute CRC */
+    DSU->DATA.reg = 0xFFFFFFFF;
+    DSU->CTRL.bit.CRC = 1;
+    while (!DSU->STATUSA.bit.DONE);
+
+    return !(DSU->DATA.reg);
 }
 
 static void USB_Service(void)
 {
   if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
   {
-    USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_EORST;
     USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN;
 
-    for (int ep = 0; ep < USB_EPT_NUM; ep++)
+    for (int ep = 1; ep < USB_EPT_NUM; ep++)
       USB->DEVICE.DeviceEndpoint[ep].EPCFG.reg = 0;
 
     USB->DEVICE.DeviceEndpoint[0].EPCFG.reg = USB_DEVICE_EPCFG_EPTYPE0(1 /*CONTROL*/) | USB_DEVICE_EPCFG_EPTYPE1(1 /*CONTROL*/);
@@ -191,103 +232,135 @@ static void USB_Service(void)
     udc_mem[0].out.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(64) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
 
     USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
+
+    USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_EORST;
   }
 
   if (USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT0) /* Transmit Complete 0 */
   {
-    if (dfu_addr)
-    {
-        dfuDownloadToNvm();
+      //If download is in progress
+      if (dfu_addr)
+      {
+          dfuDownloadToNvm();
+          dfu_status.bState = dfuDNLOAD_IDLE;
 
-        udc_control_send_zlp();
-        dfu_addr = 0;
-    }
+          udc_control_send_zlp();
+          dfu_addr = 0;
+      }
 
-    USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0;
+      USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0; //< clear
   }
 
-  if (USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.RXSTP) /* Received Setup */
+  if (!USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.RXSTP) /* Received Setup */
+    return;
+
+  USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_RXSTP;
+  USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
+
+  usb_request_t *request = (usb_request_t *)udc_ctrl_out_buf;
+  const uint8_t type = request->wValue >> 8;
+  const uint16_t length = request->wLength;
+
+  /* for these other USB requests, we must examine all fields in bmRequestType */
+  if (USB_CMD(OUT, INTERFACE, STANDARD) == request->bmRequestType)
   {
-    USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_RXSTP;
-    USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
+    udc_control_send_zlp();
+    return;
+  }
 
-    usb_request_t *request = (usb_request_t *)udc_ctrl_out_buf;
-    const uint8_t type = request->wValue >> 8;
-    const uint16_t length = request->wLength;
-
-    /* for these other USB requests, we must examine all fields in bmRequestType */
-    if (USB_CMD(OUT, INTERFACE, STANDARD) == request->bmRequestType)
+  /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
+  switch (request->bmRequestType & 0x7F)
+  {
+  case SIMPLE_USB_CMD(DEVICE, STANDARD):
+  case SIMPLE_USB_CMD(INTERFACE, STANDARD):
+    switch (request->bRequest)
     {
-      udc_control_send_zlp();
-      return;
-    }
-
-    /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
-    switch (request->bmRequestType & 0x7F)
-    {
-    case SIMPLE_USB_CMD(DEVICE, STANDARD):
-    case SIMPLE_USB_CMD(INTERFACE, STANDARD):
-      switch (request->bRequest)
-      {
-        case USB_GET_DESCRIPTOR:
-          if (USB_DEVICE_DESCRIPTOR == type)
-          {
-            udc_control_send((uint32_t *)&usb_device_descriptor, length);
-          }
-          else if (USB_CONFIGURATION_DESCRIPTOR == type)
-          {
-            udc_control_send((uint32_t *)&usb_configuration_hierarchy, length);
-          }
-          else
-          {
-            USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
-          }
-          break;
-        case USB_GET_CONFIGURATION:
-          udc_control_send(&usb_config, 1);
-          break;
-        case USB_GET_STATUS:
-          udc_control_send(dfu_status_choices + 0, 2); /* a 32-bit aligned zero in RAM is all we need */
-          break;
-        case USB_SET_FEATURE:
-        case USB_CLEAR_FEATURE:
+      case USB_GET_DESCRIPTOR:
+        if (USB_DEVICE_DESCRIPTOR == type)
+        {
+          udc_control_send((const uint8_t*)&usb_device_descriptor, length);
+        }
+        else if (USB_CONFIGURATION_DESCRIPTOR == type)
+        {
+          udc_control_send((const uint8_t*)&usb_configuration_hierarchy, length);
+        }
+        else
+        {
           USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
-          break;
-        case USB_SET_ADDRESS:
-          udc_control_send_zlp();
-          USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN | USB_DEVICE_DADD_DADD(request->wValue);
-          break;
-        case USB_SET_CONFIGURATION:
-          usb_config = request->wValue;
-          udc_control_send_zlp();
-          break;
-      }
-      break;
-    case SIMPLE_USB_CMD(INTERFACE, CLASS):
+        }
+        break;
+      case USB_GET_CONFIGURATION:
+        udc_control_send((const uint8_t*)&usb_config, sizeof(usb_config));
+        break;
+      case USB_GET_STATUS:
+        udc_control_send((const uint8_t*)&usb_status, sizeof(usb_status)); /* a 32-bit aligned zero in RAM is all we need */
+        break;
+      case USB_SET_FEATURE:
+      case USB_CLEAR_FEATURE:
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+        break;
+      case USB_SET_ADDRESS:
+        udc_control_send_zlp();
+        USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN | USB_DEVICE_DADD_DADD(request->wValue);
+        break;
+      case USB_SET_CONFIGURATION:
+        usb_config = request->wValue;
+        dfu_status.bState = dfuIDLE;
+        udc_control_send_zlp();
+        break;
+    }
+    break;
+  case SIMPLE_USB_CMD(INTERFACE, CLASS):
+       
       switch (request->bRequest)
       {
-      case 0x03: // DFU_GETSTATUS
-          udc_control_send(&dfu_status[0], 6);
+      case DFU_GETSTATUS:
+          udc_control_send( (const uint8_t*)&dfu_status, sizeof(dfu_status));
           break;
-      case 0x05: // DFU_GETSTATE
-          udc_control_send(&dfu_status[1], 1);
+      case DFU_GETSTATE:
+          udc_control_send( (const uint8_t*)&dfu_status.bState, sizeof(dfu_status.bState));
           break;
-      case 0x01: // DFU_DNLOAD
-          dfu_status = dfu_status_choices + 0;
-          if (request->wLength)
+      case DFU_DNLOAD:
+          if (request->wLength) //< "Download Request" 6.1.1 DFU_DNLOAD Request 
           {
-              dfu_status = dfu_status_choices + 2;
-            dfu_addr = 0x400 + request->wValue * 64;
+              dfu_status.bState = dfuDNBUSY;
+              dfu_addr = 0x2000 + request->wValue * 64; /* 0x2000 = 8k  @todo Configure based on platform/variant etc*/
           }
-          /* fall through */
-        default: // DFU_UPLOAD & others
-          /* 0x00 == DFU_DETACH, 0x04 == DFU_CLRSTATUS, 0x06 == DFU_ABORT, and 0x01 == DFU_DNLOAD and 0x02 == DFU_UPLOAD */
-          if (!dfu_addr)
-            udc_control_send_zlp();
+          else //< "Completion packet" 6.1.1.1 Zero Length DFU_DNLOAD Request 
+          {
+              /// @todo page flush?
+              if (userImageCrc())
+              {
+                  dfu_status.bState = dfuIDLE;
+              }
+              else
+              {
+                  dfu_status.bState = dfuERROR;
+                  dfu_status.bStatus = errVERIFY;
+              }
+              udc_control_send_zlp();
+          }
+          break;
+      case DFU_ABORT:
+          {
+              dfu_status.bState = dfuIDLE;
+              udc_control_send_zlp();
+          }
+          break;
+          
+      case DFU_CLRSTATUS:
+          {
+              dfu_status.bState = dfuIDLE;
+              dfu_status.bStatus = OK;
+          }
+          break;
+
+      case DFU_UPLOAD:
+      default:
+          udc_control_send_zlp();
           break;
       }
       break;
-    }
   }
 }
 
@@ -303,7 +376,6 @@ static void configureClock()
 
     SYSCTRL->INTFLAG.reg = SYSCTRL_INTFLAG_BOD33RDY | SYSCTRL_INTFLAG_BOD33DET | SYSCTRL_INTFLAG_DFLLRDY;
 
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL;
 
     SYSCTRL->DFLLCTRL.reg = 0; // See Errata 9905
     while (!SYSCTRL->PCLKSR.bit.DFLLRDY);
@@ -325,8 +397,6 @@ static void configureClock()
     It *should* be wholly unnecessary to use this instead of the above USBCRM code.
     However, some problem (Sparkfun?) PCBs experience unreliable USB operation in USBCRM mode.
     */
-
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL;
 
     SYSCTRL->XOSC32K.reg = SYSCTRL_XOSC32K_STARTUP( 0x6u ) | SYSCTRL_XOSC32K_XTALEN | SYSCTRL_XOSC32K_EN32K;
     SYSCTRL->XOSC32K.reg |= SYSCTRL_XOSC32K_ENABLE;
@@ -356,6 +426,9 @@ static void configureClock()
 
     while (GCLK->STATUS.reg & GCLK_STATUS_SYNCBUSY);
 #endif
+
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_RWS_DUAL; //< @note Automatic page Writes (CTRLB.MANW=0)
+
 #elif __SAMD51__
     // Automatic wait states.
     NVMCTRL->CTRLA.bit.AUTOWS = 1;
@@ -403,26 +476,6 @@ static void configureClock()
 #endif
 }
 
-static bool userImageCrc()
-{
-#if __SAMD11__ 
-    PAC1->WPCLR.reg = 2; /* clear DSU */
-#elif __SAMD51__
-    PAC->WRCTRL.reg = PAC_WRCTRL_PERID(ID_DSU) | PAC_WRCTRL_KEY_CLR;
-#else
-#error "Unsupported processor class"
-#endif
-
-    DSU->ADDR.reg = 0x400; /* start CRC check at beginning of user app */
-    DSU->LENGTH.reg = *(volatile uint32_t*)0x410; /* use length encoded into unused vector address in user app */
-
-    /* ask DSU to compute CRC */
-    DSU->DATA.reg = 0xFFFFFFFF;
-    DSU->CTRL.bit.CRC = 1;
-    while (!DSU->STATUSA.bit.DONE);
-
-    return !(DSU->DATA.reg);
-}
 
 #ifdef USE_DBL_TAP
   extern int __RAM_segment_used_end__;
@@ -450,7 +503,9 @@ static void doubleTapResetDelay()
     /* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
     *DBL_TAP_PTR = DBL_TAP_MAGIC;
     /// @Note Default iOS double tap is .25 seconds so we use this here based on processor frequency
-    volatile int wait = F_CPU/4; while (--wait);
+    const uint32_t delayCycles = F_CPU/4; ///< Cycles to delay for boot 
+    const uint32_t cyclesPerIteration = 3; ///<, Number of clocks per iteration (44,000,000 cycles on CortexM4)
+    volatile uint32_t delayIterations = delayCycles/cyclesPerIteration; while (--delayIterations) { asm("nop"); }
     /* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
     *DBL_TAP_PTR = 0;
 }
@@ -485,56 +540,91 @@ static void initializeUsb()
 #if __SAMD11__
     PORT->Group[0].PINCFG[24].reg |= PORT_PINCFG_PMUXEN;
     PORT->Group[0].PINCFG[25].reg |= PORT_PINCFG_PMUXEN;
-    PORT->Group[0].PMUX[24>>1].reg = PORT_PMUX_PMUXO(PORT_PMUX_PMUXE_G_Val) | PORT_PMUX_PMUXE(PORT_PMUX_PMUXE_G_Val);
+    PORT->Group[0].PMUX[24/2].reg = PORT_PMUX_PMUXO(PORT_PMUX_PMUXE_G_Val) | PORT_PMUX_PMUXE(PORT_PMUX_PMUXE_G_Val);
 
     PM->APBBMASK.reg |= PM_APBBMASK_USB;
 
     GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_ID(USB_GCLK_ID) | GCLK_CLKCTRL_GEN(0);
 
+#elif __SAMD51__
+
+    // Set up the USB DP/DN pins
+    PORT->Group[0].PINCFG[PIN_PA24H_USB_DM].bit.PMUXEN = true;
+    PORT->Group[0].PINCFG[PIN_PA25H_USB_DP].bit.PMUXEN = 1;
+    PORT->Group[0].PMUX[PIN_PA24H_USB_DM/2].reg = PORT_PMUX_PMUXO(MUX_PA25H_USB_DP) | PORT_PMUX_PMUXE(MUX_PA24H_USB_DM);
+
+    GCLK->PCHCTRL[USB_GCLK_ID].reg = GCLK_PCHCTRL_GEN_GCLK0_Val | GCLK_PCHCTRL_CHEN;
+
+    /* Enable USB clock */
+    MCLK->APBBMASK.bit.USB_ = true;
+
+    while (GCLK->SYNCBUSY.bit.GENCTRL0) {}
+
+#else
+#error "Unsupported processor class"
+#endif
+    
     USB->DEVICE.CTRLA.reg = USB_CTRLA_SWRST;
     while (USB->DEVICE.SYNCBUSY.bit.SWRST);
 
-    USB->DEVICE.PADCAL.reg = USB_PADCAL_TRANSN( NVM_READ_CAL(NVM_USB_TRANSN) ) | USB_PADCAL_TRANSP( NVM_READ_CAL(NVM_USB_TRANSP) ) | USB_PADCAL_TRIM( NVM_READ_CAL(NVM_USB_TRIM) );
+
+    /* Load Pad Calibration */
+    uint32_t pad_transn = ((*((uint32_t*)USB_FUSES_TRANSN_ADDR)) & USB_FUSES_TRANSN_Msk) >> USB_FUSES_TRANSN_Pos;
+    uint32_t pad_transp = ((*((uint32_t*)USB_FUSES_TRANSP_ADDR)) & USB_FUSES_TRANSP_Msk) >> USB_FUSES_TRANSP_Pos;
+    uint32_t pad_trim = ((*((uint32_t*)USB_FUSES_TRIM_ADDR)) & USB_FUSES_TRIM_Msk) >> USB_FUSES_TRIM_Pos;
+
+
+    USB->DEVICE.PADCAL.reg = USB_PADCAL_TRANSN(pad_transn) | USB_PADCAL_TRANSP(pad_transp) | USB_PADCAL_TRIM(pad_trim);
 
     USB->DEVICE.DESCADD.reg = (uint32_t)udc_mem;
 
     USB->DEVICE.CTRLA.reg = USB_CTRLA_MODE_DEVICE | USB_CTRLA_RUNSTDBY;
     USB->DEVICE.CTRLB.reg = USB_DEVICE_CTRLB_SPDCONF_FS;
     USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
-#elif __SAMD51__
-
-    /* Enable USB clock */
-    MCLK->APBBMASK.reg |= MCLK_APBBMASK_USB;
-    MCLK->AHBMASK.reg |= MCLK_AHBMASK_USB;
-
-    // Set up the USB DP/DN pins
-    PORT->Group[0].PINCFG[PIN_PA24H_USB_DM].bit.PMUXEN = 1;
-    PORT->Group[0].PMUX[PIN_PA24H_USB_DM / 2].reg &= ~(0xF << (4 * (PIN_PA24H_USB_DM & 0x01u)));
-    PORT->Group[0].PMUX[PIN_PA24H_USB_DM / 2].reg |= MUX_PA24H_USB_DM << (4 * (PIN_PA24H_USB_DM & 0x01u));
-    PORT->Group[0].PINCFG[PIN_PA25H_USB_DP].bit.PMUXEN = 1;
-    PORT->Group[0].PMUX[PIN_PA25H_USB_DP / 2].reg &= ~(0xF << (4 * (PIN_PA25H_USB_DP & 0x01u)));
-    PORT->Group[0].PMUX[PIN_PA25H_USB_DP / 2].reg |= MUX_PA25H_USB_DP << (4 * (PIN_PA25H_USB_DP & 0x01u));
-
-    GCLK->PCHCTRL[USB_GCLK_ID].reg = GCLK_PCHCTRL_GEN_GCLK1_Val | (1 << GCLK_PCHCTRL_CHEN_Pos);
-#else
-#error "Unsupported processor class"
-#endif
 }
 
 void bootloader(void)
 {
-    if ( userImageCrc()
-      && !bootloaderUserEntry() )
+    // LEDs on PA07 & PA08
+    PORT->Group[0].DIRSET.reg = (1 << 8) | (1 << 7); // Set pin to output mode
+    PORT->Group[0].DIRSET.reg = (1 << 8) | (1 << 7); // Set pin to output mode
+    PORT->Group[0].PINCFG[7].reg = PORT->Group[0].PINCFG[8].reg = (uint8_t)(PORT_PINCFG_INEN);
+
+    PORT->Group[0].OUTSET.reg = (1 << 8); // OFF:Drive HIGH
+    PORT->Group[0].OUTCLR.reg = (1 << 7); // ON: Drive low
+
+    configureClock();
+
+#if 1
+    if (userImageCrc()
+        && !bootloaderUserEntry())
+    {
+        PORT->Group[0].OUTSET.reg = (1 << 7); // OFF:Drive HIGH
+        PORT->Group[0].OUTCLR.reg = (1 << 8); // ON: Drive low
+
         return;
+    }
+#endif
+
+    PORT->Group[0].OUTCLR.reg = (1 << 8); // ON: Drive low
 
 #ifdef USE_DBL_TAP
   /* a 'double tap' has happened, so run bootloader */
   *DBL_TAP_PTR = 0;
 #endif
 
-  configureClock();
-  initializeUsb();
 
+#ifdef __SAMD51__
+  // Disable NVM caches, per errata.
+ // NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
+ // NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
+
+  /// Automatic Quad-word write
+  /// @todo Clean up!
+  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_AQW_Val;
+#endif
+
+  initializeUsb();
 
   /*
   service USB
