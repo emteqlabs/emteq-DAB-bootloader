@@ -376,6 +376,10 @@ static void USB_Service(void)
       switch (request->bRequest)
       {
       case DFU_GETSTATUS:
+          if (dfu_status.bState == dfuMANIFEST)
+          {
+              dfu_status.bState = dfuMANIFEST_WAIT_RESET;
+          }
           udc_control_send( (const uint8_t*)&dfu_status, sizeof(dfu_status));
           break;
       case DFU_GETSTATE:
@@ -393,7 +397,7 @@ static void USB_Service(void)
 
               if (userImageValid())
               {
-                  dfu_status.bState = dfuMANIFEST_SYNC;
+                  dfu_status.bState = dfuMANIFEST;
               }
               else
               {
