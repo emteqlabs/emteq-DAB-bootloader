@@ -4,6 +4,11 @@
 #include <stdint.h> //< uint32_t
 #include <stdbool.h> //< bool, true, false
 
+/// @TODO This doesn't meet the recommendation from Microchip for a reset memory semaphore
+#define DBL_TAP_MAGIC 0xf01669ef // Randomly selected, adjusted to have first and last bit set
+#define DBL_TAP_MAGIC_QUICK_BOOT 0xf02669ef
+#define DBL_TAP_MAGIC_QUICK_DFU 0xf03669ef
+
 ///@todo Configure via parameter/platform!
 static const uint16_t usbVendorId = 0x04D8;
 static const uint16_t usbProductId = 0xEC5A;
