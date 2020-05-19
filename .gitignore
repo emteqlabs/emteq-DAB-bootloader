@@ -7,3 +7,4 @@ D11bootloader THUMB Release/*
 make/build/*
 
 /.vs
+/make/bin

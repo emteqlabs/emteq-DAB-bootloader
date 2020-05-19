@@ -102,11 +102,15 @@ static void dfuUsbActive()
     PORT->Group[0].OUTCLR.reg = (1 << 7) | (1 << 8); // ON: Drive low
 }
 
-/// Green LED
+/// Red LED
+static void dfuUsbDeactive()
+{ dfuStarted(); }
+
+
+/// OFF LED
 static void userAppStarted()
 {
-    PORT->Group[0].OUTSET.reg = (1 << 7); // OFF:Drive HIGH
-    PORT->Group[0].OUTCLR.reg = (1 << 8); // ON: Drive low
+    PORT->Group[0].OUTSET.reg = (1 << 7) | (1 << 8); // OFF:Drive HIGH
 }
 
 //-----------------------------------------------------------------------------
@@ -123,8 +127,11 @@ static void udc_control_send(const uint8_t* const data, const uint32_t size)
   USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT1; //< clear
   USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.BK1RDY = 1;
 
-  while (!USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT1
-     /* && !USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRFAIL1*/);
+  while (!USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT1)
+  {
+      //if ( USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRFAIL1 )
+      //  break;
+  }
 }
 
 
@@ -151,7 +158,7 @@ static void nvmctrl_wait_ready()
 static void nvmctrl_write_flush()
 {
     //Check if written up to a page boundary i.e. Automatic page-write shall have occured
-    if (0 == (dfu_addr % NVMCTRL_PAGE_SIZE))
+    if (0 == (NVMCTRL->ADDR.bit.ADDR % NVMCTRL_PAGE_SIZE))
         return;
 
     nvmctrl_wait_ready();
@@ -235,7 +242,7 @@ static bool checkCrcRegion( const uint32_t address, const uint32_t length )
     DSU->CTRL.bit.CRC = 1;
     while (!DSU->STATUSA.bit.DONE);
 
-    const uint16_t dsuCrcData = DSU->DATA.reg;
+    const uint32_t dsuCrcData = DSU->DATA.reg;
 
     return dsuCrcData == 0 && !(DSU->STATUSA.bit.PERR || DSU->STATUSA.bit.BERR);
 }
@@ -272,29 +279,47 @@ static bool userImageValid()
     return checkCrcRegion(userAppAddress, userAppLength);
 }
 
-static void USB_Service(void)
+static bool USB_Service(void)
 {
-  if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
-  {
-    USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN;
+    if (USB->DEVICE.INTFLAG.bit.EORST) /* End Of Reset */
+    {
+        USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_EORST;
 
-    for (int ep = 1; ep < USB_EPT_NUM; ep++)
-      USB->DEVICE.DeviceEndpoint[ep].EPCFG.reg = 0;
+        USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN;
 
-    USB->DEVICE.DeviceEndpoint[0].EPCFG.reg = USB_DEVICE_EPCFG_EPTYPE0(1 /*CONTROL*/) | USB_DEVICE_EPCFG_EPTYPE1(1 /*CONTROL*/);
-    USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.BK0RDY = 1;
-    USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK1RDY = 1;
+        for (int ep = 1; ep < USB_EPT_NUM; ep++)
+            USB->DEVICE.DeviceEndpoint[ep].EPCFG.reg = 0;
 
-    udc_mem[0].in.ADDR.reg = (uint32_t)udc_ctrl_in_buf;
-    udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(0) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
+        USB->DEVICE.DeviceEndpoint[0].EPCFG.reg = USB_DEVICE_EPCFG_EPTYPE0(1 /*CONTROL*/) | USB_DEVICE_EPCFG_EPTYPE1(1 /*CONTROL*/);
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.BK0RDY = 1;
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK1RDY = 1;
 
-    udc_mem[0].out.ADDR.reg = (uint32_t)udc_ctrl_out_buf;
-    udc_mem[0].out.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(64) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
+        udc_mem[0].in.ADDR.reg = (uint32_t)udc_ctrl_in_buf;
+        udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(0) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
 
-    USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
+        udc_mem[0].out.ADDR.reg = (uint32_t)udc_ctrl_out_buf;
+        udc_mem[0].out.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(64) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE(0) | USB_DEVICE_PCKSIZE_SIZE(3 /*64 Byte*/);
 
-    USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_EORST;
-  }
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
+        
+        dfu_status.bState = dfuIDLE;
+        dfu_status.bStatus = OK;
+    }
+    else
+    if (USB->DEVICE.INTFLAG.bit.SUSPEND) // SAMD doesn't distinguish between Suspend and Disconnect state.
+    {
+        USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_SUSPEND;
+        USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_WAKEUP; // clear pending
+        
+        dfuUsbDeactive();
+    }
+    else
+    if (USB->DEVICE.INTFLAG.bit.WAKEUP) // SAMD doesn't distinguish between Suspend and Disconnect state.
+    {
+        USB->DEVICE.INTFLAG.reg = USB_DEVICE_INTFLAG_WAKEUP;
+
+        dfuUsbActive();
+    }
 
   if (USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT0) /* Transmit Complete 0 */
   {
@@ -312,7 +337,7 @@ static void USB_Service(void)
   }
 
   if (!USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.RXSTP) /* Received Setup */
-    return;
+      return true;
 
   USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_RXSTP;
   USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
@@ -325,7 +350,7 @@ static void USB_Service(void)
   if (USB_CMD(OUT, INTERFACE, STANDARD) == request->bmRequestType)
   {
     udc_control_send_zlp();
-    return;
+    return true;
   }
 
   /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
@@ -360,13 +385,11 @@ static void USB_Service(void)
         USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
         break;
       case USB_SET_ADDRESS:
-          dfuUsbActive();
           udc_control_send_zlp();
           USB->DEVICE.DADD.reg = USB_DEVICE_DADD_ADDEN | USB_DEVICE_DADD_DADD(request->wValue);
           break;
       case USB_SET_CONFIGURATION:
         usb_config = request->wValue;
-        dfu_status.bState = dfuIDLE;
         udc_control_send_zlp();
         break;
     }
@@ -376,11 +399,11 @@ static void USB_Service(void)
       switch (request->bRequest)
       {
       case DFU_GETSTATUS:
-          if (dfu_status.bState == dfuMANIFEST)
+          udc_control_send((const uint8_t*)&dfu_status, sizeof(dfu_status));
+          if (dfu_status.bState == dfuMANIFEST_SYNC)
           {
               dfu_status.bState = dfuMANIFEST_WAIT_RESET;
           }
-          udc_control_send( (const uint8_t*)&dfu_status, sizeof(dfu_status));
           break;
       case DFU_GETSTATE:
           udc_control_send( (const uint8_t*)&dfu_status.bState, sizeof(dfu_status.bState));
@@ -397,7 +420,8 @@ static void USB_Service(void)
 
               if (userImageValid())
               {
-                  dfu_status.bState = dfuMANIFEST;
+                  dfu_status.bState = dfuMANIFEST_SYNC;
+                  dfu_status.bStatus = OK;
               }
               else
               {
@@ -418,6 +442,20 @@ static void USB_Service(void)
           {
               dfu_status.bState = dfuIDLE;
               dfu_status.bStatus = OK;
+              udc_control_send_zlp();
+          }
+          break;
+
+      case DFU_DETACH:
+          udc_control_send_zlp();
+          if (dfu_status.bState == dfuMANIFEST_WAIT_RESET)
+          {
+
+              dfu_status.bState = appIDLE;
+              dfu_status.bStatus = OK;
+              /// @todo Enable DFU RT mode instead of disabling USB?
+              USB->DEVICE.CTRLB.bit.DETACH = true;
+              return false;  //< Exit DFU
           }
           break;
 
@@ -428,6 +466,8 @@ static void USB_Service(void)
       }
       break;
   }
+
+  return true;
 }
 
 static void configureClock()
@@ -542,12 +582,21 @@ static void configureClock()
 #endif
 }
 
-
 #ifdef USE_DBL_TAP
-  extern int __RAM_segment_used_end__;
-  static volatile uint32_t *DBL_TAP_PTR = (volatile uint32_t *)(&__RAM_segment_used_end__);
-  #define DBL_TAP_MAGIC 0xf02669ef
+    static volatile uint32_t resetMagic __attribute__((section(".resetMagic"))) __attribute__((__used__));
 #endif
+
+static bool hasQuickDfu()
+{
+    const bool hasQuickDfuMagic = (resetMagic == DBL_TAP_MAGIC_QUICK_DFU);
+    return hasQuickDfuMagic;
+}
+
+static bool hasQuickBoot()
+{
+    const bool hasQuickBootMagic = (resetMagic == DBL_TAP_MAGIC_QUICK_BOOT);
+    return hasQuickBootMagic;
+}
 
 static bool hasResetDoubleTap()
 {
@@ -559,7 +608,7 @@ static bool hasResetDoubleTap()
 #error "Unsupported processor class"
 #endif
 
-    const bool hasResetMagic = (*DBL_TAP_PTR == DBL_TAP_MAGIC);
+    const bool hasResetMagic = (resetMagic == DBL_TAP_MAGIC);
 
     return !isPowerOnReset && hasResetMagic;
 }
@@ -567,13 +616,13 @@ static bool hasResetDoubleTap()
 static void doubleTapResetDelay()
 {
     /* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
-    *DBL_TAP_PTR = DBL_TAP_MAGIC;
+    resetMagic = DBL_TAP_MAGIC;
     /// @Note Default iOS double tap is .25 seconds so we use this here based on processor frequency
     const uint32_t delayCycles = F_CPU/4; ///< Cycles to delay for boot 
     const uint32_t cyclesPerIteration = 3; ///<, Number of clocks per iteration (44,000,000 cycles on CortexM4)
     volatile uint32_t delayIterations = delayCycles/cyclesPerIteration; while (--delayIterations) { asm("nop"); }
     /* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
-    *DBL_TAP_PTR = 0;
+    resetMagic = 0;
 }
 /* pin PA15 grounded, so run bootloader */
 static bool hasGroundedPA15()
@@ -591,8 +640,15 @@ static bool bootloaderUserEntry()
     return hasGroundedPA15();
 #else
 
-    if (hasResetDoubleTap() )
+    /// DBL_TAP_MAGIC_QUICK_DFU has been set programatically so no delay entering DFU
+    if (hasQuickDfu())
         return true;
+
+    /// User reset occured while DBL_TAP_MAGIC was set
+    if (hasResetDoubleTap())
+    {
+        return true;
+    }
 
     doubleTapResetDelay();
     return false;
@@ -656,53 +712,52 @@ void bootloader(void)
 
     configureClock();
 
-#if 1
-    if (userImageValid()
-        && !bootloaderUserEntry())
-    {
-        userAppStarted();
-
-#if 0
-        // Rebase the Stack Pointer
-        __set_MSP(*(uint32_t*)userAppAddress);
-
-        // Rebase the vector table base address
-        SCB->VTOR = (userAppAddress & SCB_VTOR_TBLOFF_Msk);
-
-        /// Jump to application Reset Handler in the application
-        const uint32_t currentUserAppResetVector = *userAppResetVector;
-        asm("bx %0" ::"r"(currentUserAppResetVector));
-
-        //ldr r0, = &SCB->VTOR /* VTOR register */
-       // asm("ldr r1, =%0\n" : : "r"(userAppAddress)); /* origin of user app @todo Configure based on platform/variant etc*/
-#endif
-        return;
-    }
-#endif
-
-    dfuStarted();
+    // Check entry to DFU 
+    const bool enterDfu = !userImageValid()
+                || (!hasQuickBoot() && bootloaderUserEntry());
 
 #ifdef USE_DBL_TAP
-  /* a 'double tap' has happened, so run bootloader */
-  *DBL_TAP_PTR = 0;
+    /* a 'double tap' has happened, so run bootloader */
+    resetMagic = 0;
 #endif
 
+    if (enterDfu)
+    {
+        dfuStarted();
 
 #ifdef __SAMD51__
-  // Disable NVM caches, per errata.
- // NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
- // NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
+        // Disable NVM caches, per errata.
+       // NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
+       // NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
 
-  /// @todo Clean up! Automatic Page or Quad-word write?
-  NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_AP_Val;
+        /// @todo Clean up! Automatic Page or Quad-word write?
+        NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_AP_Val;
 #endif
 
-  initializeUsb();
+        initializeUsb();
 
-  /*
-  service USB
-  */
+        /*
+        service USB
+        */
 
-  while (1)
-    USB_Service();
+        while (USB_Service());
+    }
+
+    // After DFU we will start the user-app
+    userAppStarted();
+
+#if 0
+    // Rebase the Stack Pointer
+    __set_MSP(*(uint32_t*)userAppAddress);
+
+    // Rebase the vector table base address
+    SCB->VTOR = (userAppAddress & SCB_VTOR_TBLOFF_Msk);
+
+    /// Jump to application Reset Handler in the application
+    const uint32_t currentUserAppResetVector = *userAppResetVector;
+    asm("bx %0" ::"r"(currentUserAppResetVector));
+
+    //ldr r0, = &SCB->VTOR /* VTOR register */
+   // asm("ldr r1, =%0\n" : : "r"(userAppAddress)); /* origin of user app @todo Configure based on platform/variant etc*/
+#endif
 }
