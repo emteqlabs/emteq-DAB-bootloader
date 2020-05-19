@@ -3,7 +3,7 @@ modified from original (which can be found at https://github.com/ataradov/mcu-st
 + formal stack declaration (rather than just use the end of RAM)
 + entry point of "Reset_Handler" instead of "irq_handler_reset"
 + used Rowley convention of section names (i.e. "data_load" instead of "etext")
-+ flash size reduced to 1kByte (since bootloader must fit in this)
++ FLASH size reduced to 1kByte (since bootloader must fit in this)
 */
 
 /*
@@ -34,16 +34,25 @@ modified from original (which can be found at https://github.com/ataradov/mcu-st
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-__STACKSIZE__ = 256;
 
+__BOOTLOADERSIZE__ = 0x2000; /* 8k  @todo Configure based on platform/variant etc*/
+__RESERVE_ETBSIZE__ = 0x0; /* First 32K used by ETB trace */
+
+/* Linker script to configure memory regions.
+ * Need modifying for a specific board.
+ *   FLASH.ORIGIN: starting address of FLASH
+ *   FLASH.LENGTH: length of FLASH
+ *   RAM.ORIGIN: starting address of RAM bank 0
+ *   RAM.LENGTH: length of RAM bank 0
+ */
 MEMORY
 {
-  flash (rx) : ORIGIN = 0x00000000, LENGTH = 0x2000 /* 8k  @todo Configure based on platform/variant etc*/
-  ram  (rwx) : ORIGIN = 0x20000000, LENGTH = 0x1000 /* 4k */
+  FLASH (rx) : ORIGIN = 0x00000000, LENGTH = __BOOTLOADERSIZE__
+  RAM (rwx) : ORIGIN = 0x20000000 + __RESERVE_ETBSIZE__, LENGTH = 0x30000 - __RESERVE_ETBSIZE__ /* First 32K used by ETB trace */
 }
 
-__top_flash = ORIGIN(flash) + LENGTH(flash);
-__top_ram = ORIGIN(ram) + LENGTH(ram);
+__top_flash = ORIGIN(FLASH) + LENGTH(FLASH);
+__top_ram = ORIGIN(RAM) + LENGTH(RAM);
 
 ENTRY(Reset_Handler)
 
@@ -57,7 +66,7 @@ SECTIONS
     *(.rodata)
     *(.rodata.*)
     . = ALIGN(4);
-  } > flash
+  } > FLASH
 
   . = ALIGN(4);
   __data_load_start__ = .;
@@ -65,7 +74,7 @@ SECTIONS
   .uninit_RESERVED : ALIGN(4)
   {
     KEEP(*(.bss.$RESERVED*))
-  } > ram
+  } > RAM
 
   .data : ALIGN(4)
   {
@@ -76,7 +85,7 @@ SECTIONS
     *(.data*)
     . = ALIGN(4);
     __data_end__ = .;
-  } > ram AT > flash
+  } > RAM AT > FLASH
 
   .bss : ALIGN(4)
   {
@@ -86,16 +95,29 @@ SECTIONS
     . = ALIGN(4);
     __bss_end__ = .;
     PROVIDE(_end = .);
-  } > ram
+  } > RAM
 
-  .stack : ALIGN(4)
-  {
-    __stack_start__ = .;
-    *(.stack .stack.*)
-    . = ALIGN(MAX(__stack_start__ + __STACKSIZE__, .), 8);
-    __stack_end__ = .;
-  } > ram
+  
+	/* .stack_dummy section doesn't contains any symbols. It is only
+	 * used for linker to calculate size of stack sections, and assign
+	 * values to stack symbols later */
+	.stack_dummy (COPY):
+	{
+		*(.stack*)
+	} > RAM
 
-  __RAM_segment_used_end__ = .;
+    /** We place resetMagic at the very end of memory i.e. Before the stack
+    */
+    __RAM_reset_magic__ = __top_ram - 4;
+    .resetMagic __RAM_reset_magic__ :
+    {
+      KEEP(*(.resetMagic)) ;
+    } > RAM
+
+	/* Set stack top to end of RAM, and stack limit move down by
+	 * size of stack_dummy section */
+	__stack_end__ = __top_ram - SIZEOF(.resetMagic);
+	__stack_start__ = __stack_end__ - SIZEOF(.stack_dummy) - SIZEOF(.resetMagic);
+	PROVIDE(__stack = __stack_end__);  
 }
 
