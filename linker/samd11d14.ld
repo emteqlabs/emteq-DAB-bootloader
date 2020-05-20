@@ -34,6 +34,10 @@ modified from original (which can be found at https://github.com/ataradov/mcu-st
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+ 
+OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
+OUTPUT_ARCH(arm)
+SEARCH_DIR(.)
 
 __BOOTLOADERSIZE__ = 0x2000; /* 8k  @todo Configure based on platform/variant etc*/
 __RESERVE_ETBSIZE__ = 0x0; /* First 32K used by ETB trace */
@@ -53,6 +57,7 @@ MEMORY
 
 __top_flash = ORIGIN(FLASH) + LENGTH(FLASH);
 __top_ram = ORIGIN(RAM) + LENGTH(RAM);
+
 
 ENTRY(Reset_Handler)
 
@@ -96,8 +101,8 @@ SECTIONS
     __bss_end__ = .;
     PROVIDE(_end = .);
   } > RAM
-
   
+    
 	/* .stack_dummy section doesn't contains any symbols. It is only
 	 * used for linker to calculate size of stack sections, and assign
 	 * values to stack symbols later */
@@ -105,19 +110,22 @@ SECTIONS
 	{
 		*(.stack*)
 	} > RAM
+    
+	/* Set stack top to end of RAM, and stack limit move down by
+	 * size of stack_dummy section */
+	__stack_end__ = __top_ram - SIZEOF(.resetMagic);
+	__stack_start__ = __stack_end__ - SIZEOF(.stack_dummy) - SIZEOF(.resetMagic);
+	PROVIDE(__stack = __stack_end__);  
 
     /** We place resetMagic at the very end of memory i.e. Before the stack
     */
     __RAM_reset_magic__ = __top_ram - 4;
     .resetMagic __RAM_reset_magic__ :
     {
-      KEEP(*(.resetMagic)) ;
+        . = ALIGN(4);
+        KEEP(*(.resetMagic)) ;
     } > RAM
 
-	/* Set stack top to end of RAM, and stack limit move down by
-	 * size of stack_dummy section */
-	__stack_end__ = __top_ram - SIZEOF(.resetMagic);
-	__stack_start__ = __stack_end__ - SIZEOF(.stack_dummy) - SIZEOF(.resetMagic);
-	PROVIDE(__stack = __stack_end__);  
+	__ram_end__ = __top_ram;
 }
 
