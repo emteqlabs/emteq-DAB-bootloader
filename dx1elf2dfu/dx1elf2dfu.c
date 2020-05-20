@@ -412,8 +412,16 @@ int main(int argc, char *argv[])
 
 	if (argc < 3)
 	{
-		printf("%s <input.elf> <output.dfu>\n", argv[0]);
+		printf("%s <input.elf> <output.dfu> [0x2000]\n", argv[0]);
 		return -1;
+	}
+
+	/// We overload the user-app address based on command-line parameter
+	const uint32_t defaultUserAppAddress = userAppAddress;
+	uint32_t userAppAddress = defaultUserAppAddress;
+	if (argc >= 4)
+	{
+		userAppAddress = (uint32_t)strtol(argv[3], NULL, 0);
 	}
 
 	elffp = fopen(argv[1], "rb");
