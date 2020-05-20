@@ -321,19 +321,49 @@ static bool USB_Service(void)
         dfuUsbActive();
     }
 
-  if (USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT0) /* Transmit Complete 0 */
+  switch (dfu_status.bState)
   {
-      //If download is in progress
-      if (dfu_addr)
+  case appDETACH:
       {
-          dfuDownloadToNvm();
-          dfu_status.bState = dfuDNLOAD_IDLE;
+          /// @todo Enable DFU RT mode instead of disabling USB?
+          USB->DEVICE.CTRLB.bit.DETACH = true;
+      }
+      return false;  //< Exit DFU
+
+  case dfuDNBUSY:
+      if (USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT0) /// Transmit Complete 0
+      {
+          ///< Protect against bootloader overwrite
+          if (dfu_addr >= userAppAddress)
+          {
+              dfuDownloadToNvm();
+              dfu_status.bState = dfuDNLOAD_IDLE;
+          }
+          else
+          {
+              dfu_status.bState = dfuERROR;
+              dfu_status.bStatus = errADDRESS;
+          }
 
           udc_control_send_zlp();
-          dfu_addr = 0;
+          USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0; //< clear
       }
-
-      USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0; //< clear
+      break;
+  case dfuMANIFEST:
+      {
+          if (userImageValid())
+          {
+              dfu_status.bState = dfuMANIFEST_WAIT_RESET;
+              dfu_status.bStatus = OK;
+          }
+          else
+          {
+              dfu_status.bState = dfuERROR;
+              dfu_status.bStatus = errVERIFY;
+          }
+          //udc_control_send_zlp();
+      }
+      break;
   }
 
   if (!USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.RXSTP) /* Received Setup */
@@ -402,7 +432,7 @@ static bool USB_Service(void)
           udc_control_send((const uint8_t*)&dfu_status, sizeof(dfu_status));
           if (dfu_status.bState == dfuMANIFEST_SYNC)
           {
-              dfu_status.bState = dfuMANIFEST_WAIT_RESET;
+              dfu_status.bState = dfuMANIFEST;
           }
           break;
       case DFU_GETSTATE:
@@ -411,24 +441,16 @@ static bool USB_Service(void)
       case DFU_DNLOAD:
           if (request->wLength) //< "Download Request" 6.1.1 DFU_DNLOAD Request 
           {
+              USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0; //< clear
+
               dfu_status.bState = dfuDNBUSY;
-              dfu_addr = 0x2000 + request->wValue * 64; /* 0x2000 = 8k  @todo Configure based on platform/variant etc*/
+              dfu_addr = userAppAddress + request->wValue * 64; /* 0x2000 = 8k  @todo Configure based on platform/variant etc*/
           }
           else //< "Completion packet" 6.1.1.1 Zero Length DFU_DNLOAD Request 
           {
               nvmctrl_write_flush();
 
-              if (userImageValid())
-              {
-                  dfu_status.bState = dfuMANIFEST_SYNC;
-                  dfu_status.bStatus = OK;
-              }
-              else
-              {
-                  dfu_status.bState = dfuERROR;
-                  dfu_status.bStatus = errVERIFY;
-              }
-              udc_control_send_zlp();
+              dfu_status.bState = dfuMANIFEST_SYNC;
           }
           break;
       case DFU_ABORT:
@@ -447,16 +469,8 @@ static bool USB_Service(void)
           break;
 
       case DFU_DETACH:
+          dfu_status.bState = appDETACH;
           udc_control_send_zlp();
-          if (dfu_status.bState == dfuMANIFEST_WAIT_RESET)
-          {
-
-              dfu_status.bState = appIDLE;
-              dfu_status.bStatus = OK;
-              /// @todo Enable DFU RT mode instead of disabling USB?
-              USB->DEVICE.CTRLB.bit.DETACH = true;
-              return false;  //< Exit DFU
-          }
           break;
 
       case DFU_UPLOAD:
@@ -586,19 +600,13 @@ static void configureClock()
     static volatile uint32_t resetMagic __attribute__((section(".resetMagic"))) __attribute__((__used__));
 #endif
 
-static bool hasQuickDfu()
+static bool hasResetUserAppMagic()
 {
-    const bool hasQuickDfuMagic = (resetMagic == DBL_TAP_MAGIC_QUICK_DFU);
+    const bool hasQuickDfuMagic = (resetMagic == ResetMagic_UserApp);
     return hasQuickDfuMagic;
 }
 
-static bool hasQuickBoot()
-{
-    const bool hasQuickBootMagic = (resetMagic == DBL_TAP_MAGIC_QUICK_BOOT);
-    return hasQuickBootMagic;
-}
-
-static bool hasResetDoubleTap()
+static bool hasResetBootloaderMagic()
 {
 #if __SAMD11__ 
     const bool isPowerOnReset = (PM->RCAUSE.bit.POR);
@@ -608,7 +616,7 @@ static bool hasResetDoubleTap()
 #error "Unsupported processor class"
 #endif
 
-    const bool hasResetMagic = (resetMagic == DBL_TAP_MAGIC);
+    const bool hasResetMagic = (resetMagic == ResetMagic_Bootloader);
 
     return !isPowerOnReset && hasResetMagic;
 }
@@ -616,7 +624,7 @@ static bool hasResetDoubleTap()
 static void doubleTapResetDelay()
 {
     /* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
-    resetMagic = DBL_TAP_MAGIC;
+    resetMagic = ResetMagic_Bootloader;
     /// @Note Default iOS double tap is .25 seconds so we use this here based on processor frequency
     const uint32_t delayCycles = F_CPU/4; ///< Cycles to delay for boot 
     const uint32_t cyclesPerIteration = 3; ///<, Number of clocks per iteration (44,000,000 cycles on CortexM4)
@@ -634,18 +642,20 @@ static bool hasGroundedPA15()
     return (!(PORT->Group[0].IN.reg & (1UL << 15)));
 }
 
-static bool bootloaderUserEntry()
+static bool hasBootloaderResetMagic()
 {
 #ifndef USE_DBL_TAP
     return hasGroundedPA15();
 #else
 
-    /// DBL_TAP_MAGIC_QUICK_DFU has been set programatically so no delay entering DFU
-    if (hasQuickDfu())
-        return true;
+    /// Bypass double-tap delay for fast user-app restart entry
+    if (hasResetUserAppMagic())
+        return false;
 
-    /// User reset occured while DBL_TAP_MAGIC was set
-    if (hasResetDoubleTap())
+    /// Enter bootloader via:
+    /// - App requested quick bootloader entry by setting ResetMagic_Bootloader
+    /// - User reset occured via double-tap external reset which means ResetMagic_Bootloader is set
+    if (hasResetBootloaderMagic())
     {
         return true;
     }
@@ -714,7 +724,7 @@ void bootloader(void)
 
     // Check entry to DFU 
     const bool enterDfu = !userImageValid()
-                || (!hasQuickBoot() && bootloaderUserEntry());
+                || hasBootloaderResetMagic();
 
 #ifdef USE_DBL_TAP
     /* a 'double tap' has happened, so run bootloader */
