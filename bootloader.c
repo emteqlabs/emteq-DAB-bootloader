@@ -325,8 +325,9 @@ static bool USB_Service(void)
   {
   case appDETACH:
       {
-          /// @todo Enable DFU RT mode instead of disabling USB?
-          USB->DEVICE.CTRLB.bit.DETACH = true;
+          /// @todo Enable DFU RT mode instead of disabling/resetting USB?
+          USB->DEVICE.CTRLA.reg = USB_CTRLA_SWRST;
+          while (USB->DEVICE.SYNCBUSY.bit.SWRST);
       }
       return false;  //< Exit DFU
 
