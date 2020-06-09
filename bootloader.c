@@ -375,6 +375,7 @@ static bool USB_Service(void)
 
   usb_request_t *request = (usb_request_t *)udc_ctrl_out_buf;
   const uint8_t type = request->wValue >> 8;
+  const uint8_t index = request->wValue & 0xff;
   const uint16_t length = request->wLength;
 
   /* for these other USB requests, we must examine all fields in bmRequestType */
@@ -400,7 +401,21 @@ static bool USB_Service(void)
         {
           udc_control_send((const uint8_t*)&usb_configuration_hierarchy, length);
         }
+#if USE_STRING_DESCRIPTORS
+        else if (USB_STRING_DESCRIPTOR == type)
+        {
+            const usb_string_descriptor_t* stringDescriptor = getStringDescriptor(index);
+            if ( stringDescriptor)
+            {
+                udc_control_send((const uint8_t*)stringDescriptor, LIMIT(length, stringDescriptor->bLength));
+            }
+            else
+            {
+                USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+            }
+        }
         else
+#endif
         {
           USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
         }

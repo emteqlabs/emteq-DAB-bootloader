@@ -166,6 +166,13 @@ typedef struct PACK
   uint8_t   iInterface;
 } usb_interface_descriptor_t;
 
+typedef struct PACK
+{
+    uint8_t   bLength;
+    uint8_t   bDescriptorType;
+    uint16_t  wLANGID;
+} usb_string_descriptor_zero_t;
+
 /*- Prototypes --------------------------------------------------------------*/
 
 #endif // _USB_H_

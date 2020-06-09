@@ -39,7 +39,7 @@ OBJCOPY= arm-none-eabi-objcopy
 SIZE= arm-none-eabi-size
 ELF2DFU=../dx1elf2dfu/dx1elf2dfu
 
-CFLAGS += -W -Wall --std=gnu99 -Os
+CFLAGS += -W -Wall --std=gnu11 -Os
 CFLAGS += -Wno-address-of-packed-member
 CFLAGS += -fno-diagnostics-show-caret
 CFLAGS += -fdata-sections -ffunction-sections
@@ -104,7 +104,7 @@ SAMD51P19A: DEFINES += -D__SAMD51P19A__
 SAMD51P20A: DEFINES += -D__SAMD51P20A__
 SAMD51G18A SAMD51G19A SAMD51J18A SAMD51J19A SAMD51J19B SAMD51J20A SAMD51J20C SAMD51N19A SAMD51N20A SAMD51P19A SAMD51P20A: SAMD51
 ## @note Clocked at 48MHz in bootloader mode
-SAMD51: DEFINES += -D__SAMD51__ -DF_CPU=48000000
+SAMD51: DEFINES += -D__SAMD51__ -DF_CPU=48000000 -DUSE_STRING_DESCRIPTORS
 SAMD51: CFLAGS += -mcpu=cortex-m4
 SAMD51: LDFLAGS += -mcpu=cortex-m4
 SAMD51: INCLUDES += -I../include/SAMD51

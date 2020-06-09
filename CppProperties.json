@@ -17,6 +17,7 @@
             "name": "SAMD11D14AM",
             "defines": [
                 "F_CPU=48000000",
+                "USE_DBL_TAP",
                 "__SAMD11__",
                 "__SAMD11D14AM__"
             ]
@@ -25,6 +26,8 @@
             "name": "SAMD51J19A",
             "defines": [
                 "F_CPU=48000000",
+                "USE_STRING_DESCRIPTORS",
+                "USE_DBL_TAP",
                 "__SAMD51__",
                 "__SAMD51J19A__"
             ]
