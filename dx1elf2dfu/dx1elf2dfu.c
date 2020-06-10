@@ -517,6 +517,20 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+#if 1
+
+	blob = pm_list;
+	i = 0;
+	while (blob)
+	{
+		printf("Blob[%u] Address=%x Count=%u\n", i, blob->address, blob->count);
+
+		/* advance to next blob */
+		blob = blob->next;
+		++i;
+	}
+#endif
+
 	blob = pm_list; phy_addr = userAppAddress;
 
 	while (blob)
