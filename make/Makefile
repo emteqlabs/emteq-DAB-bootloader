@@ -15,20 +15,26 @@ MAKECMDGOALS?=SAMD11D14AM
 TARGET?=$(word 1, $(MAKECMDGOALS))
 endif
 
-BIN_DIR:=bin
-BUILD_DIR:=build\$(TARGET)
-
 RELEASE_SUFFIX:=#
 DEBUG_SUFFIX:=_d
 
 ## BIN may be defined from make commandline i.e. make BIN=MyDfuBootloader
 ifndef BIN
 ifdef DEBUG
-BIN = DfuBootloader$(TARGET)$(DEBUG_SUFFIX)
+	BIN = DfuBootloader$(TARGET)$(DEBUG_SUFFIX)
 else
-BIN = DfuBootloader$(TARGET)$(RELEASE_SUFFIX)
+	BIN = DfuBootloader$(TARGET)$(RELEASE_SUFFIX)
 endif
 endif
+
+ifdef DEBUG
+CONFIG=debug
+else
+CONFIG=RELEASE_SUFFIX
+endif
+
+BIN_DIR:=bin
+BUILD_DIR:=build\$(CONFIG)\$(TARGET)
 
 ##############################################################################
 .PHONY: all clean size dfu
@@ -60,9 +66,12 @@ INCLUDES += \
   -I../include \
   -I..
 
-SRCS += \
+SOURCE_DIR=..
+SOURCES += \
   ../bootloader.c \
-  ../usb_descriptors.c
+  ../usb_descriptors.c 
+ASOURCES += \
+  ../startup.s
 
 DEFINES += \
   -DDONT_USE_CMSIS_INIT \
@@ -71,8 +80,9 @@ DEFINES += \
 CFLAGS += $(INCLUDES) $(DEFINES)
 ASFLAGS += $(CFLAGS)
 
-OBJS = $(addprefix $(BUILD_DIR)\, $(notdir %/$(subst .c,.o, $(SRCS))))
-OBJS += $(BUILD_DIR)/startup.o
+# The names of all object files that must be generated
+OBJECTS  := $(SOURCES:$(SOURCE_DIR)/%.c=$(BUILD_DIR)/%.o)
+AOBJECTS := $(ASOURCES:$(SOURCE_DIR)/%.s=$(BUILD_DIR)/%.o)
 
 .PHONY: default
 default: ${TARGET}
@@ -119,17 +129,19 @@ SAMD51 SAMD11: info all
 
 all: $(BUILD_DIR) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin size
 
-%.o:
+#%.o: $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES))
+ $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.c
 	@echo CC $@
-	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SRCS)) -c -o $@
-
-$(BUILD_DIR)/startup.o: ../startup.s $(BUILD_DIR)
+	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@
+	
+#$(BUILD_DIR)/startup.o: ../startup.s $(BUILD_DIR)
+$(AOBJECTS) : $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.s
 	@echo CC $@
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
 
-$(BIN_DIR)/$(BIN).elf: $(OBJS) $(BIN_DIR)
+$(BIN_DIR)/$(BIN).elf: $(OBJECTS) $(AOBJECTS) $(BIN_DIR)
 	@echo LD $@
-	@$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o $@
+	@$(CC) $(LDFLAGS) $(OBJECTS) $(AOBJECTS) $(LIBS) -o $@
 
 $(BIN_DIR)/$(BIN).hex: $(BIN_DIR)/$(BIN).elf
 	@echo OBJCOPY $@
