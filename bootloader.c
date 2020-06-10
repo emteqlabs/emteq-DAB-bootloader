@@ -66,7 +66,12 @@ typedef struct
 } udc_mem_t;
 
 /*- Variables ---------------------------------------------------------------*/
-static __attribute__((aligned(4))) dfu_getstatus_t dfu_status = { .bStatus = OK, .bState = dfuIDLE, .bwPollTimeout = {0,1,0} };
+static __attribute__((aligned(4))) dfu_getstatus_t dfu_status = 
+{ 
+      .bStatus = OK
+    , .bState = dfuIDLE
+    , .bwPollTimeout = {20,0,0} 
+};
 
 static __attribute__((aligned(4))) udc_mem_t udc_mem[USB_EPT_NUM];
 static __attribute__((aligned(4))) uint32_t udc_ctrl_in_buf[16];// NVMCTRL_PAGE_SIZE / sizeof(uint32_t)];
@@ -164,7 +169,11 @@ static void nvmctrl_write_flush()
     nvmctrl_wait_ready();
 
     //Page size: NVMCTRL_PAGE_SIZE==512 on SAMD51 and NVMCTRL_PAGE_SIZE==64 on SAMD11
+#if __SAMD11__
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_WP;
+#else
     NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WP;
+#endif
     nvmctrl_wait_ready();
 }
 
