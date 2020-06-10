@@ -120,7 +120,7 @@ SECTIONS
     /** We place resetMagic at the very end of memory i.e. Before the stack
     */
     __RAM_reset_magic__ = __top_ram - 4;
-    .resetMagic __RAM_reset_magic__ :
+    .resetMagic __RAM_reset_magic__ (NOLOAD) :
     {
         . = ALIGN(4);
         KEEP(*(.resetMagic)) ;
