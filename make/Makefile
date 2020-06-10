@@ -30,7 +30,7 @@ endif
 ifdef DEBUG
 CONFIG=debug
 else
-CONFIG=RELEASE_SUFFIX
+CONFIG=release
 endif
 
 BIN_DIR:=bin
