@@ -34,7 +34,8 @@ CONFIG=release
 endif
 
 BIN_DIR:=bin
-BUILD_DIR:=build\$(CONFIG)\$(TARGET)
+BUILD_ROOT:=build
+BUILD_DIR:=$(BUILD_ROOT)\$(CONFIG)\$(TARGET)
 
 ##############################################################################
 .PHONY: all clean size dfu
@@ -132,7 +133,7 @@ all: $(BUILD_DIR) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin size
 #%.o: $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES))
  $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.c
 	@echo CC $@
-	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@
+	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@ $(LDFLAGS)
 	
 #$(BUILD_DIR)/startup.o: ../startup.s $(BUILD_DIR)
 $(AOBJECTS) : $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.s
@@ -166,7 +167,7 @@ $(BIN_DIR)/$(BIN).dfu: $(BIN_DIR)/$(BIN).elf
 
 clean:
 	@echo clean
-	@-rmdir /S /Q $(BUILD_DIR)
+	@-rmdir /S /Q $(BUILD_ROOT)
 
 
 -include $(wildcard $(BUILD_DIR)/*.d)
