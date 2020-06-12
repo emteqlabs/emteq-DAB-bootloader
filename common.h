@@ -14,7 +14,6 @@ enum ResetMagic
 ///@todo Configure via parameter/platform!
 static const uint16_t usbVendorId = 0x04D8;
 static const uint16_t usbProductId = 0xEC5A;
-static const uint32_t userAppAddress = 0x2000; //< 8KiB  /* origin of the application (first address available after the bootloader) */
 static const bool userAppCrcEmbed = true; ///@todo Configure via parameter/platform!
 
 ///@{ Vector address'

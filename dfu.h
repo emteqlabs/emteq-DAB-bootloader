@@ -98,6 +98,13 @@ enum DfuStatus
     errSTALLEDPKT = 0x0F, ///<  Device stalled an unexpected request.
 };
 
+enum DfuAttributes
+{
+      USB_DFU_ATTR_CAN_DNLOAD = 0b00000001
+    , USB_DFU_ATTR_CAN_UPLOAD = 0b00000010
+    , USB_DFU_ATTR_MANIFESTATION_TOLERANT = 0b00000100
+    , USB_DFU_ATTR_WILL_DETACH = 0b00001000
+};
 
 typedef struct PACK
 {

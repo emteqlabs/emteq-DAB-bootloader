@@ -55,12 +55,12 @@ CFLAGS += -mthumb
 CFLAGS += -MD -MP -MT $(BUILD_DIR)/$(*F).o -MF $(BUILD_DIR)/$(@F).d
 
 LDFLAGS += -mthumb
-LDFLAGS += -Wl,--gc-sections
+LDFLAGS += -Wl,--gc-sections -Wl,--print-memory-usage
 LDFLAGS += -Wl,--script=../linker/samd11d14.ld
 
 ifdef DEBUG
-CFLAGS += -g -O0
-LDFLAGS += -g -O0
+CFLAGS += -g -Og
+LDFLAGS += -g -Og
 endif
 
 INCLUDES += \
@@ -133,7 +133,7 @@ all: $(BUILD_DIR) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin size
 #%.o: $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES))
  $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.c
 	@echo CC $@
-	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@ $(LDFLAGS)
+	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@
 	
 #$(BUILD_DIR)/startup.o: ../startup.s $(BUILD_DIR)
 $(AOBJECTS) : $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.s

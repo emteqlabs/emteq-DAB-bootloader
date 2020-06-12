@@ -34,6 +34,8 @@
 #include "usb.h"
 #include "utils.h"
 
+static const uint16_t cBcdVersion = 0x0101;  //< Binary-Coded-Decimal: Major[2].Minor[2]
+
 /*- Definitions -------------------------------------------------------------*/
 enum
 {
@@ -42,8 +44,24 @@ enum
     USB_STR_MANUFACTURER,
     USB_STR_PRODUCT,
     USB_STR_SERIAL_NUMBER,
+    USB_STR_DFU_App,
+    USB_STR_DFU_Bootloader,
+    USB_STR_DFU_FactoryCalData,
+    USB_STR_DFU_HardwareData,
 #endif
 };
+
+typedef enum
+{
+      USB_ALTERNATESETTING_App
+    , USB_ALTERNATESETTING_Bootloader
+    , USB_ALTERNATESETTING_FactoryCalData
+    , USB_ALTERNATESETTING_HardwareData
+
+    /// Sentinal
+    , USB_ALTERNATESETTING_COUNT
+} AlternateSettings;
+    
 
 /*- Types -------------------------------------------------------------------*/
 typedef struct PACK
@@ -58,11 +76,23 @@ typedef struct PACK
 
 typedef struct PACK
 {
-  usb_configuration_descriptor_t  configuration;
-  usb_interface_descriptor_t      interface;
-  usb_dfu_descriptor_t            dfu;
-} usb_configuration_hierarchy_t;
+    usb_configuration_descriptor_t  configuration;
+    usb_dfu_descriptor_t            dfu;
+    usb_interface_descriptor_t      dfuApp;
+} usb_configuration_hierarchy_standard_t;
 
+typedef struct PACK
+{
+    usb_interface_descriptor_t      dfuBootloader;
+    usb_interface_descriptor_t      dfuFactoryCalData;
+    usb_interface_descriptor_t      dfuHardwareData;
+} usb_configuration_hierarchy_extended_t;
+
+typedef struct PACK
+{
+    usb_configuration_hierarchy_standard_t standard;
+    usb_configuration_hierarchy_extended_t extended;
+} usb_configuration_hierarchy_t;
 
 //-----------------------------------------------------------------------------
 extern usb_device_descriptor_t usb_device_descriptor;
