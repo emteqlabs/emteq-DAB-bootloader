@@ -44,16 +44,17 @@ __BOOTPROTECT_SIZE__ = DEFINED(__BOOTPROTECT_SIZE__) ? __BOOTPROTECT_SIZE__ : 8K
 __origin_FLASH = 0x0;
 __origin_RAM = 0x20000000;
 __origin_BackupRAM = 0x47000000;
-__origin_NvmUserPage = 0x00804000;
+__origin_UserPage = 0x00804000;
 
 __length_FLASH = 512K; /** @todo Configure per device */
 __length_RAM = 192K; /** @todo Configure per device */
 __length_BackupRAM = 8K; /** @todo Configure per device */
-__length_NvmUserPage = 512B; /** @todo Configure per device */
+__length_UserPage = 512; /** @todo Configure per device */
+__length_UserPageReserved = 32; /** First eight 32-bit words (32 Bytes) are reserved  @todo Configure per device @todo 3-words are unused on SAMD51 */
 
 /** @{ PARTITIONS */
-__BOOTLOADER_SIZE__ = DEFINED(__BOOTLOADER_SIZE__) ? __BOOTLOADER_SIZE__ : 4K;
-__FACTORYCAL_SIZE__ = DEFINED(__FACTORYCAL_SIZE__) ? __FACTORYCAL_SIZE__ : 256;
+__BOOTLOADER_SIZE__ = DEFINED(__BOOTLOADER_SIZE__) ? __BOOTLOADER_SIZE__ : 6K;
+__CALDATA_SIZE__ = DEFINED(__CALDATA_SIZE__) ? __CALDATA_SIZE__ : __length_UserPage - __length_UserPageReserved;
 __HWDATA_SIZE__ = DEFINED(__HWDATA_SIZE__) ? __HWDATA_SIZE__ : 64;
 __APP_SIZE__ = DEFINED(__APP_SIZE__) ? __APP_SIZE__ : __length_FLASH - __BOOTPROTECT_SIZE__; /* Whole storage space after boot-protection */
 /** @} */
@@ -71,16 +72,17 @@ __RESERVE_ETBSIZE__ = 0x0000; /* First 32K used by ETB trace */
  */
 MEMORY
 {
-  BOOT_FLASH (r) : ORIGIN = __origin_FLASH, LENGTH = __BOOTLOADER_SIZE__
-  FACTORYCAL_FLASH (r) : ORIGIN = __BOOTPROTECT_SIZE__ - __HWDATA_SIZE__ - __FACTORYCAL_SIZE__, LENGTH = __FACTORYCAL_SIZE__
-  HWDATA_FLASH (r) : ORIGIN = __BOOTPROTECT_SIZE__ - __HWDATA_SIZE__, LENGTH = __HWDATA_SIZE__
-  APP_FLASH (rx) : ORIGIN = __BOOTPROTECT_SIZE__, LENGTH = __APP_SIZE__
+  /* - NVM - */
+  BOOT_FLASH (rx) : ORIGIN = __origin_FLASH, LENGTH = __BOOTPROTECT_SIZE__ - __HWDATA_SIZE__
+  HWDATA_FLASH (rw) : ORIGIN = __BOOTPROTECT_SIZE__ - __HWDATA_SIZE__, LENGTH = __HWDATA_SIZE__
+  APP_FLASH (rw) : ORIGIN = __BOOTPROTECT_SIZE__, LENGTH = __APP_SIZE__
+
+  /* - USER page - */
+  USERPAGE_FLASH (rw) : ORIGIN = __origin_UserPage, LENGTH = __length_UserPage
+
+  /* - RAM - */
   RAM (rw) : ORIGIN = __origin_RAM + __RESERVE_ETBSIZE__, LENGTH = __length_RAM - __RESERVE_ETBSIZE__ /* First 32K used by ETB trace */
 }
-
-ASSERT( ORIGIN(FACTORYCAL_FLASH) == 0x1EC0, "Factory Calibration Data address moved" )
-ASSERT( ORIGIN(HWDATA_FLASH) == 0x1FC0, "Hardware Data address moved" )
-ASSERT( ORIGIN(APP_FLASH) == 0x2000, "App-Image address moved" )
 
 __origin_APP_FLASH = ORIGIN(APP_FLASH);     
 __length_APP_FLASH = LENGTH(APP_FLASH);
@@ -88,8 +90,10 @@ __origin_BOOT_FLASH = ORIGIN(BOOT_FLASH);
 __length_BOOT_FLASH = LENGTH(BOOT_FLASH);
 __origin_HWDATA_FLASH = ORIGIN(HWDATA_FLASH);   
 __length_HWDATA_FLASH = LENGTH(HWDATA_FLASH);
-__origin_FACTORYCAL_FLASH = ORIGIN(FACTORYCAL_FLASH);   
-__length_FACTORYCAL_FLASH = LENGTH(FACTORYCAL_FLASH);
+__origin_USERPAGE_FLASH = ORIGIN(USERPAGE_FLASH);   
+__length_USERPAGE_FLASH = LENGTH(USERPAGE_FLASH);
+__origin_CALDATA_FLASH = __origin_USERPAGE_FLASH + __length_UserPageReserved;
+__length_CALDATA_FLASH = __length_USERPAGE_FLASH - __length_UserPageReserved;
 
 __end_RAM = ORIGIN(RAM) + LENGTH(RAM);
 
@@ -97,10 +101,28 @@ ENTRY(Reset_Handler)
 
 SECTIONS
 {
+    .hardwareData (NOLOAD) :
+    {
+        . = ALIGN(4);
+		KEEP(*(.hardwareData)) ;
+    } > HWDATA_FLASH
+    
+    .userPage (NOLOAD):
+    {
+        KEEP(*(.userPageReserved));   
+        . = __length_UserPageReserved;
+        KEEP(*(.factoryCalibrationData));
+    } > USERPAGE_FLASH
+
   .text : ALIGN(4)
   {
     FILL(0xff)
     KEEP(*(.vectors))
+    
+    . = ALIGN(4);
+    KEEP(*(.versionTag)) ;
+    . = ALIGN(4);
+
     *(.text*)
     *(.rodata)
     *(.rodata.*)
@@ -163,3 +185,7 @@ SECTIONS
 	__ram_end__ = __end_RAM;
 }
 
+
+ASSERT( __origin_CALDATA_FLASH == 0x804020, "Factory Calibration Data address moved" )
+ASSERT( ORIGIN(HWDATA_FLASH) == 0x1FC0, "Hardware Data address moved" )
+ASSERT( ORIGIN(APP_FLASH) == 0x2000, "App-Image address moved" )

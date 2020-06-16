@@ -117,17 +117,17 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bInterfaceProtocol = 2,
             .iInterface = USB_STR_DFU_Bootloader,
         },
-        .dfuFactoryCalData =
+        .dfuCalibrationData =
         {
             .bLength = sizeof( usb_interface_descriptor_t ),
             .bDescriptorType = USB_INTERFACE_DESCRIPTOR,
             .bInterfaceNumber = 0,
-            .bAlternateSetting = USB_ALTERNATESETTING_FactoryCalData,
+            .bAlternateSetting = USB_ALTERNATESETTING_CalibrationData,
             .bNumEndpoints = 0,
             .bInterfaceClass = 254,
             .bInterfaceSubClass = 1,
             .bInterfaceProtocol = 2,
-            .iInterface = USB_STR_DFU_FactoryCalData,
+            .iInterface = USB_STR_DFU_CalibrationData,
         },
         .dfuHardwareData =
         {
@@ -150,7 +150,7 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
 #define STR_PRODUCT u"EmteqDAB"
 #define STR_SERIAL u"12345678"
 #define STR_DFU_App u"DAB-App"
-#define STR_DFU_FactoryCal u"DAB-FactoryCal"
+#define STR_DFU_FactoryCal u"DAB-Calibration"
 #define STR_DFU_HardwareData u"DAB-HardwareData"
 #define STR_DFU_Bootloader u"DAB-Bootloader"
 
@@ -171,7 +171,7 @@ usb_string_descriptor_t* getStringDescriptor( const uint8_t index )
         case USB_STR_MANUFACTURER: return &usb_string_descriptor_manufacturer;
         case USB_STR_PRODUCT: return &usb_string_descriptor_product;
         case USB_STR_DFU_App: return &usb_string_descriptor_dfu_app;
-        case USB_STR_DFU_FactoryCalData: return &usb_string_descriptor_dfu_factoryCal;
+        case USB_STR_DFU_CalibrationData: return &usb_string_descriptor_dfu_factoryCal;
         case USB_STR_DFU_Bootloader: return &usb_string_descriptor_dfu_bootloader;
         case USB_STR_DFU_HardwareData: return &usb_string_descriptor_dfu_hardwareData;
         case USB_STR_SERIAL_NUMBER: return &usb_string_descriptor_serial;

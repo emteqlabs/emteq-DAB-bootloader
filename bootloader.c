@@ -58,6 +58,27 @@
 # error "Macro __SAMD11__ or  __SAMD51__ must be defined"
 #endif
 
+
+#ifdef USE_DBL_TAP
+uint32_t resetMagic __attribute__((section( ".resetMagic" )));
+#endif
+
+/** Generated version tag from 'git --no-pager describe --tags --always --dirty'
+@note Run update_version.ps1  (Linux users need install PowerShell to run this script)
+*/
+const char cVersionTag[] __attribute__( (section( ".versionTag" )) ) __attribute__( (__used__) ) =
+#if __has_include("Version.generated.h")
+#include "Version.generated.h"
+#else
+#error "Please run 'update_version.ps1' to generate version information"
+#endif
+;
+
+/** @note "9.4 NVM User Page Mapping" The first eight 32-bit words (32 Bytes) of the Non Volatile Memory (NVM) User Page contain calibration data that are
+automatically read at device power on.The remaining 480 Bytes can be used for storing custom parameters
+*/
+volatile uint32_t userPageReserved[8] __attribute__((section( ".userPageReserved" )));
+
 /*- Types -------------------------------------------------------------------*/
 typedef struct
 {
@@ -86,13 +107,13 @@ typedef struct
 
 extern char __origin_APP_FLASH[],  __length_APP_FLASH[]; ///< @note Defined in .ld linker
 extern char __origin_BOOT_FLASH[], __length_BOOT_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_FACTORYCAL_FLASH[], __length_FACTORYCAL_FLASH[]; ///< @note Defined in .ld linker
+extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defined in .ld linker
 extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
 static const Partition partition[USB_ALTERNATESETTING_COUNT] =
 {
      [USB_ALTERNATESETTING_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH }
    , [USB_ALTERNATESETTING_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH }
-   , [USB_ALTERNATESETTING_FactoryCalData] = { (uint32_t)__origin_FACTORYCAL_FLASH, (uint32_t)__length_FACTORYCAL_FLASH }
+   , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH }
    , [USB_ALTERNATESETTING_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH }
 };
 
@@ -188,7 +209,7 @@ static void nvmctrl_wait_ready()
 */
 static void nvmctrl_write_flush()
 {
-    //Check if written up to a page boundary i.e. Automatic page-write shall have occured
+    //Check if written up to a page boundary i.e. Automatic page-write shall have occurred
     if( 0 == (NVMCTRL->ADDR.bit.ADDR % NVMCTRL_PAGE_SIZE) )
         return;
 
@@ -270,6 +291,7 @@ static bool checkCrcRegion( const uint32_t address, const uint32_t length )
 #error "Unsupported processor class"
 #endif
 
+    /// @todo CRC calculate during flashing operation as async task
     DSU->ADDR.reg = address;
     DSU->LENGTH.reg = length; /* use length encoded into unused vector address in user app */
 

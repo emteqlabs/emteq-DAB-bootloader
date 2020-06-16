@@ -46,7 +46,7 @@ enum
     USB_STR_SERIAL_NUMBER,
     USB_STR_DFU_App,
     USB_STR_DFU_Bootloader,
-    USB_STR_DFU_FactoryCalData,
+    USB_STR_DFU_CalibrationData,
     USB_STR_DFU_HardwareData,
 #endif
 };
@@ -55,7 +55,7 @@ typedef enum
 {
       USB_ALTERNATESETTING_App
     , USB_ALTERNATESETTING_Bootloader
-    , USB_ALTERNATESETTING_FactoryCalData
+    , USB_ALTERNATESETTING_CalibrationData
     , USB_ALTERNATESETTING_HardwareData
 
     /// Sentinal
@@ -84,7 +84,7 @@ typedef struct PACK
 typedef struct PACK
 {
     usb_interface_descriptor_t      dfuBootloader;
-    usb_interface_descriptor_t      dfuFactoryCalData;
+    usb_interface_descriptor_t      dfuCalibrationData;
     usb_interface_descriptor_t      dfuHardwareData;
 } usb_configuration_hierarchy_extended_t;
 
