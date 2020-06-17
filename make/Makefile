@@ -74,6 +74,9 @@ SOURCES += \
 ASOURCES += \
   ../startup.s
 
+VERSION_FILE=$(SOURCE_DIR)/Version.generated.h
+VERSION_TAG=$(shell git -C $(SOURCE_DIR) --no-pager describe --tags --always --dirty)
+
 DEFINES += \
   -DDONT_USE_CMSIS_INIT \
   -DSTARTUP_FROM_RESET
@@ -125,17 +128,20 @@ info:
 	@echo $(DEFINES)
 	@echo INCLUDES:
 	@echo $(INCLUDES)
+	@echo VERSION_TAG:
+	@echo $(VERSION_TAG)
 
 SAMD51 SAMD11: info all	
 
-all: $(BUILD_DIR) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin size
+all: $(BUILD_DIR) $(VERSION_FILE) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin size
 
-#%.o: $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES))
  $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.c
 	@echo CC $@
 	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@
-	
-#$(BUILD_DIR)/startup.o: ../startup.s $(BUILD_DIR)
+
+$(VERSION_FILE): $(SOURCE_DIR)/.git/index
+	@echo "$(VERSION_TAG)" > $@
+
 $(AOBJECTS) : $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.s
 	@echo CC $@
 	@$(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ $<
