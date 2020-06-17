@@ -77,7 +77,7 @@ const char cVersionTag[] __attribute__( (section( ".versionTag" )) ) __attribute
 /** @note "9.4 NVM User Page Mapping" The first eight 32-bit words (32 Bytes) of the Non Volatile Memory (NVM) User Page contain calibration data that are
 automatically read at device power on.The remaining 480 Bytes can be used for storing custom parameters
 */
-volatile uint32_t userPageReserved[8] __attribute__((section( ".userPageReserved" )));
+uint32_t userPageReserved[8] __attribute__((section( ".userPageReserved" )));
 
 /*- Types -------------------------------------------------------------------*/
 typedef struct
@@ -98,23 +98,164 @@ static __attribute__( (aligned( 4 )) ) udc_mem_t udc_mem[USB_EPT_NUM];
 static __attribute__( (aligned( 4 )) ) uint32_t udc_ctrl_in_buf[16];// NVMCTRL_PAGE_SIZE / sizeof(uint32_t)];
 static __attribute__( (aligned( 4 )) ) uint32_t udc_ctrl_out_buf[16];//NVMCTRL_PAGE_SIZE /sizeof(uint32_t)];
 
+extern char __origin_APP_FLASH[],  __length_APP_FLASH[]; ///< @note Defined in .ld linker
+extern char __origin_BOOT_FLASH[], __length_BOOT_FLASH[]; ///< @note Defined in .ld linker
+extern char __origin_USERPAGE_FLASH[], __length_USERPAGE_FLASH[]; ///< @note Defined in .ld linker
+extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defined in .ld linker
+extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
 
+
+static void nvmctrl_wait_ready()
+{
+#if __SAMD11__
+    while( !NVMCTRL->INTFLAG.bit.READY );
+#elif __SAMD51__
+    while( !NVMCTRL->STATUS.bit.READY );
+#else
+#error "Unsupported processor class"
+#endif
+}
+
+/*Before erasing the NVM User Page, ensure that the first 32 Bytes are read to a buffer and later written back
+* to the same area unless a configuration change is intended
+*/
+void nvmctrl_erase_userpage()
+{
+    uint8_t userPageReservedBuffer[sizeof( userPageReserved )];
+
+    memcpy( userPageReservedBuffer, userPageReserved, sizeof( userPageReserved ) );
+
+    // Execute "EP" Erase Page (512Bytes region to 0xFFFFF)
+    nvmctrl_wait_ready();
+    NVMCTRL->ADDR.reg = (uint32_t)__origin_USERPAGE_FLASH;
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EP;
+    nvmctrl_wait_ready();
+
+    //Restore the reserved data section contents
+    memcpy( userPageReserved, userPageReservedBuffer, sizeof( userPageReserved ) );
+
+#if 0 ///< @todo will this be necessary?
+    //Commit the last quad-word in page-buffer to ensure the reserved data is commited
+    nvmctrl_wait_ready();
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WQW;
+    nvmctrl_wait_ready();
+#endif
+}
+
+/** Write of an incomplete quad-word (SAMD1) or row (SAMD11) must be flushed explicitly
+*/
+static void nvmctrl_write_flush()
+{
+    //Check if written up to a page boundary i.e. Automatic page-write shall have occurred
+    if( 0 == (NVMCTRL->ADDR.bit.ADDR % NVMCTRL_PAGE_SIZE) )
+        return;
+
+    nvmctrl_wait_ready();
+
+    //Page size: NVMCTRL_PAGE_SIZE==512 on SAMD51 and NVMCTRL_PAGE_SIZE==64 on SAMD11
+#if __SAMD11__
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_WP;
+#else
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WP;
+#endif
+    nvmctrl_wait_ready();
+}
+
+#if __SAMD11__
+static void nvmctrl_erase_row( uint32_t addr )
+{
+    nvmctrl_wait_ready();
+
+    //Execute Erase-Row command
+    // @note A row contains 4 pages
+    NVMCTRL->ADDR.reg = addr / 2;
+    NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
+    nvmctrl_wait_ready();
+}
+#elif __SAMD51__
+static void nvmctrl_erase_block( uint32_t dst )
+{
+    nvmctrl_wait_ready();
+
+    // Execute "EB" Erase block (8K region to 0xFFFF)
+    NVMCTRL->ADDR.reg = dst;
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
+    nvmctrl_wait_ready();
+}
+#endif
+
+
+typedef bool (*fnNvmCtrlPreWrite)(const uint32_t nvm_addr, const uint32_t nvm_writeLength );
+
+/** When writing the user-page the first 32-bytes are reserved by Samd specification.
+*/
+bool nvmctrl_userpage_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+{
+    (void)nvm_writeLength; //< unused
+
+    // @note Sanity check that CalData is inside the UserPage!
+   ///@todo assert( nvm_addr >= (uint32_t)__origin_CALDATA_FLASH && nvm_addr <= (uint32_t)__origin_CALDATA_FLASH + (uint32_t)__length_CALDATA_FLASH );
+
+    //TODO; Check data to be written changes and 0's to 1's?
+
+    if( nvm_addr == (uint32_t)__origin_CALDATA_FLASH )
+        nvmctrl_erase_userpage();
+
+    return true;
+}
+
+bool nvmctrl_bootloader_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+{
+    (void)nvm_addr; //< unused
+    (void)nvm_writeLength; //< unused
+
+   ///@todo assert( false == "Not implemented!" );
+    return false;
+}
+
+bool nvmctrl_main_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+{
+    (void)nvm_writeLength; //< unused
+
+    /// @todo MUST store in RAM before writing so we only do an erase if necessary
+#if __SAMD11__ 
+    /** The NVM is organized into rows, where each row contains four pages
+        The NVM has a rowerase granularity, while the write granularity is by page. In other words, a single row erase will erase all four pages in
+        the row, while four write operations are used to write the complete row.
+        */
+    if( 0 == (nvm_addr % NVMCTRL_ROW_SIZE) )
+    {
+        /// @todo Cache row and only erase if content differs to save wear
+        nvmctrl_erase_row( nvm_addr );
+    }
+    // @note "WP" Write page and "PBC" Page Buffer Clear are not necessary while NVMCTRL->CTRLB.bit.MANW == 0;
+#elif __SAMD51__
+    /// erase at start of new block
+    /// @todo Could erase at end of current block only/if block content changes etc
+    if( 0 == (nvm_addr % NVMCTRL_BLOCK_SIZE) )
+    {
+        /// @todo Cache row and only erase if content differs to save wear
+        nvmctrl_erase_block( nvm_addr );
+    }
+#else
+#error "Unsupported processor class"
+#endif
+
+    return true;
+}
 typedef struct 
 {
     uint32_t origin;
     uint32_t length;
+    fnNvmCtrlPreWrite preWrite;
 } Partition;
 
-extern char __origin_APP_FLASH[],  __length_APP_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_BOOT_FLASH[], __length_BOOT_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
 static const Partition partition[USB_ALTERNATESETTING_COUNT] =
 {
-     [USB_ALTERNATESETTING_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH }
-   , [USB_ALTERNATESETTING_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH }
-   , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH }
-   , [USB_ALTERNATESETTING_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH }
+     [USB_ALTERNATESETTING_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH, nvmctrl_main_PreWrite }
+   , [USB_ALTERNATESETTING_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH, nvmctrl_bootloader_PreWrite }
+   , [USB_ALTERNATESETTING_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH, nvmctrl_bootloader_PreWrite }
+   , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH, nvmctrl_userpage_PreWrite }
 };
 
 static volatile uint32_t* userAppResetVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppResetVectorOffset);
@@ -194,88 +335,21 @@ static void udc_control_send_zlp( void )
     udc_control_send( NULL, 0 ); /* peripheral can't read from NULL address, but size is zero and this value takes less space to compile */
 }
 
-static void nvmctrl_wait_ready()
-{
-#if __SAMD11__
-    while( !NVMCTRL->INTFLAG.bit.READY );
-#elif __SAMD51__
-    while( !NVMCTRL->STATUS.bit.READY );
-#else
-#error "Unsupported processor class"
-#endif
-}
-
-/** Write of an incomplete quad-word (SAMD1) or row (SAMD11) must be flushed explicitly
-*/
-static void nvmctrl_write_flush()
-{
-    //Check if written up to a page boundary i.e. Automatic page-write shall have occurred
-    if( 0 == (NVMCTRL->ADDR.bit.ADDR % NVMCTRL_PAGE_SIZE) )
-        return;
-
-    nvmctrl_wait_ready();
-
-    //Page size: NVMCTRL_PAGE_SIZE==512 on SAMD51 and NVMCTRL_PAGE_SIZE==64 on SAMD11
-#if __SAMD11__
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_WP;
-#else
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WP;
-#endif
-    nvmctrl_wait_ready();
-}
-
-#if __SAMD11__
-static void nvmctrl_erase_row( uint32_t addr )
-{
-    //Execute Erase-Row command
-    // @note A row contains 4 pages
-    NVMCTRL->ADDR.reg = addr / 2;
-    NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
-    nvmctrl_wait_ready();
-}
-#elif __SAMD51__
-static void nvmctrl_erase_block( uint32_t dst )
-{
-    // Execute "EB" Erase block (8K region to 0xFFFF)
-    NVMCTRL->ADDR.reg = dst;
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
-    nvmctrl_wait_ready();
-}
-#endif
-
 
 static void dfuDownloadToNvm()
-{    
+{
     const uint32_t nvm_addr = partition[usb_alternateSetting].origin + dfu_partitionOffset;
 
-    /// @todo MUST store in RAM before writing so we only do an erase if necessary
-#if __SAMD11__ 
-    /** The NVM is organized into rows, where each row contains four pages
-        The NVM has a rowerase granularity, while the write granularity is by page. In other words, a single row erase will erase all four pages in
-        the row, while four write operations are used to write the complete row.
-        */
-    if( 0 == (nvm_addr % NVMCTRL_ROW_SIZE) )
-    {
-        /// @todo Cache row and only erase if content differs to save wear
-        nvmctrl_erase_row( nvm_addr );
-    }
-    // @note "WP" Write page and "PBC" Page Buffer Clear are not necessary while NVMCTRL->CTRLB.bit.MANW == 0;
-#elif __SAMD51__
-    /// erase at start of new block
-    /// @todo Could erase at end of current block only/if block content changes etc
-    if( 0 == (nvm_addr % NVMCTRL_BLOCK_SIZE) )
-    {
-        /// @todo Cache row and only erase if content differs to save wear
-        nvmctrl_erase_block( nvm_addr );
-    }
-#else
-#error "Unsupported processor class"
-#endif
+    // Make sure we don't write past the end of the partition
+    const uint32_t nvm_writeLength = MIN( sizeof( udc_ctrl_out_buf ), partition[usb_alternateSetting].length - dfu_partitionOffset );
 
-    typedef uint32_t NvmWord;/// @todo Do we need to write in 16-bit chunks or 32bit okay?
+    partition[usb_alternateSetting].preWrite( nvm_addr, nvm_writeLength );
+
+    typedef uint32_t NvmWord;
+    ///@todo assert( nvm_writeLength % sizeof( NvmWord ) == 0 );// Can only write multiples of 32bit
     NvmWord* nvm_writeCursor = (NvmWord*)(nvm_addr);
     NvmWord* ram_readCursor = (NvmWord*)udc_ctrl_out_buf;
-    for( unsigned i = 0; i < sizeof( udc_ctrl_out_buf ) / sizeof( NvmWord ); ++i )
+    for( unsigned i = 0; i < nvm_writeLength / sizeof( NvmWord ); ++i )
         *nvm_writeCursor++ = *ram_readCursor++;
 
     nvmctrl_wait_ready();
@@ -456,10 +530,10 @@ static bool USB_Service()
                     else if( USB_CONFIGURATION_DESCRIPTOR == type )
                     {
 #if 1
-                        udc_control_send( (const uint8_t*)&usb_configuration_hierarchy, LIMIT( length, usb_configuration_hierarchy.standard.configuration.wTotalLength ) );
+                        udc_control_send( (const uint8_t*)&usb_configuration_hierarchy, MIN( length, usb_configuration_hierarchy.standard.configuration.wTotalLength ) );
 #else
-                        udc_control_send( (const uint8_t*)&usb_configuration_hierarchy.standard, LIMIT( length, sizeof(usb_configuration_hierarchy.standard) ) );
-                        udc_control_send( (const uint8_t*)&usb_configuration_hierarchy.extended, LIMIT( length, sizeof(usb_configuration_hierarchy.extended) ) );
+                        udc_control_send( (const uint8_t*)&usb_configuration_hierarchy.standard, MIN( length, sizeof(usb_configuration_hierarchy.standard) ) );
+                        udc_control_send( (const uint8_t*)&usb_configuration_hierarchy.extended, MIN( length, sizeof(usb_configuration_hierarchy.extended) ) );
 #endif
                     }
 #if USE_STRING_DESCRIPTORS
@@ -468,7 +542,7 @@ static bool USB_Service()
                         const usb_string_descriptor_t* stringDescriptor = getStringDescriptor( index );
                         if( stringDescriptor )
                         {
-                            udc_control_send( (const uint8_t*)stringDescriptor, LIMIT( length, stringDescriptor->bLength ) );
+                            udc_control_send( (const uint8_t*)stringDescriptor, MIN( length, stringDescriptor->bLength ) );
                         }
                         else
                         {

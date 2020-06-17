@@ -55,8 +55,8 @@ typedef enum
 {
       USB_ALTERNATESETTING_App
     , USB_ALTERNATESETTING_Bootloader
-    , USB_ALTERNATESETTING_CalibrationData
     , USB_ALTERNATESETTING_HardwareData
+    , USB_ALTERNATESETTING_CalibrationData
 
     /// Sentinal
     , USB_ALTERNATESETTING_COUNT
