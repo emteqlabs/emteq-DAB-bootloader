@@ -34,7 +34,8 @@
 
 #define INLINE          static inline __attribute__((always_inline))
 
-#define LIMIT(a, b)     (((a) > (b)) ? (b) : (a))
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
 
 #endif // _UTILS_H_
 
