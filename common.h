@@ -1,8 +1,11 @@
 #ifndef DFUBOOTLOADER_COMMON_H
 #define DFUBOOTLOADER_COMMON_H
 
+#include <sam.h>
 #include <stdint.h> //< uint32_t
 #include <stdbool.h> //< bool, true, false
+
+static const uint16_t dfu_blockSize = NVMCTRL_PAGE_SIZE; ///< 64 on SAMD11 and 512 on SAMD51
 
 /// @TODO This doesn't meet the recommendation from Microchip for a reset memory semaphore
 enum ResetMagic

@@ -85,7 +85,7 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bDescriptorType = 33,
             .bmAttributes = (USB_DFU_ATTR_CAN_DNLOAD | USB_DFU_ATTR_CAN_UPLOAD | USB_DFU_ATTR_WILL_DETACH),
             .wDetachTimeout = 0,
-            .wTransferSize = 64,// NVMCTRL_PAGE_SIZE, ///< 64 on SAMD11 and 512 on SAMD51
+            .wTransferSize = dfu_blockSize,
             .bcdDFU = 0x100,
         },
 
@@ -117,18 +117,6 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bInterfaceProtocol = 2,
             .iInterface = USB_STR_DFU_Bootloader,
         },
-        .dfuCalibrationData =
-        {
-            .bLength = sizeof( usb_interface_descriptor_t ),
-            .bDescriptorType = USB_INTERFACE_DESCRIPTOR,
-            .bInterfaceNumber = 0,
-            .bAlternateSetting = USB_ALTERNATESETTING_CalibrationData,
-            .bNumEndpoints = 0,
-            .bInterfaceClass = 254,
-            .bInterfaceSubClass = 1,
-            .bInterfaceProtocol = 2,
-            .iInterface = USB_STR_DFU_CalibrationData,
-        },
         .dfuHardwareData =
         {
             .bLength = sizeof( usb_interface_descriptor_t ),
@@ -140,6 +128,18 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bInterfaceSubClass = 1,
             .bInterfaceProtocol = 2,
             .iInterface = USB_STR_DFU_HardwareData,
+        },
+        .dfuCalibrationData =
+        {
+            .bLength = sizeof( usb_interface_descriptor_t ),
+            .bDescriptorType = USB_INTERFACE_DESCRIPTOR,
+            .bInterfaceNumber = 0,
+            .bAlternateSetting = USB_ALTERNATESETTING_CalibrationData,
+            .bNumEndpoints = 0,
+            .bInterfaceClass = 254,
+            .bInterfaceSubClass = 1,
+            .bInterfaceProtocol = 2,
+            .iInterface = USB_STR_DFU_CalibrationData,
         }
     }
 };
@@ -150,7 +150,7 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
 #define STR_PRODUCT u"EmteqDAB"
 #define STR_SERIAL u"12345678"
 #define STR_DFU_App u"DAB-App"
-#define STR_DFU_FactoryCal u"DAB-Calibration"
+#define STR_DFU_CalibrationData u"DAB-Calibration"
 #define STR_DFU_HardwareData u"DAB-HardwareData"
 #define STR_DFU_Bootloader u"DAB-Bootloader"
 
@@ -159,7 +159,7 @@ usb_string_descriptor_t usb_string_descriptor_manufacturer __attribute__( (align
 usb_string_descriptor_t usb_string_descriptor_product __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_PRODUCT ), USB_STRING_DESCRIPTOR, STR_PRODUCT };
 usb_string_descriptor_t usb_string_descriptor_serial __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_SERIAL ), USB_STRING_DESCRIPTOR, STR_SERIAL };
 usb_string_descriptor_t usb_string_descriptor_dfu_app __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_App ), USB_STRING_DESCRIPTOR, STR_DFU_App };
-usb_string_descriptor_t usb_string_descriptor_dfu_factoryCal __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_FactoryCal ), USB_STRING_DESCRIPTOR, STR_DFU_FactoryCal };
+usb_string_descriptor_t usb_string_descriptor_dfu_calibrationData __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_CalibrationData ), USB_STRING_DESCRIPTOR, STR_DFU_CalibrationData };
 usb_string_descriptor_t usb_string_descriptor_dfu_bootloader __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_Bootloader ), USB_STRING_DESCRIPTOR, STR_DFU_Bootloader };
 usb_string_descriptor_t usb_string_descriptor_dfu_hardwareData __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_HardwareData ), USB_STRING_DESCRIPTOR, STR_DFU_HardwareData };
 
@@ -171,7 +171,7 @@ usb_string_descriptor_t* getStringDescriptor( const uint8_t index )
         case USB_STR_MANUFACTURER: return &usb_string_descriptor_manufacturer;
         case USB_STR_PRODUCT: return &usb_string_descriptor_product;
         case USB_STR_DFU_App: return &usb_string_descriptor_dfu_app;
-        case USB_STR_DFU_CalibrationData: return &usb_string_descriptor_dfu_factoryCal;
+        case USB_STR_DFU_CalibrationData: return &usb_string_descriptor_dfu_calibrationData;
         case USB_STR_DFU_Bootloader: return &usb_string_descriptor_dfu_bootloader;
         case USB_STR_DFU_HardwareData: return &usb_string_descriptor_dfu_hardwareData;
         case USB_STR_SERIAL_NUMBER: return &usb_string_descriptor_serial;

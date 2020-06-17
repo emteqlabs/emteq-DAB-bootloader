@@ -265,7 +265,8 @@ static volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(partition[U
 static uint8_t usb_status[2] = { 0, 0 };
 static uint8_t usb_config = 0;
 static uint8_t usb_alternateSetting = USB_ALTERNATESETTING_App; //, Sets the partition in DFU mode
-static uint32_t dfu_partitionOffset = 0;
+static uint16_t dfu_writeBlockIndex = 0;
+static uint16_t dfu_writeSize = 0;
 
 /*- Implementations ---------------------------------------------------------*/
 
@@ -338,10 +339,10 @@ static void udc_control_send_zlp( void )
 
 static void dfuDownloadToNvm()
 {
-    const uint32_t nvm_addr = partition[usb_alternateSetting].origin + dfu_partitionOffset;
+    const uint32_t nvm_addr = partition[usb_alternateSetting].origin + (dfu_writeBlockIndex * dfu_blockSize);
 
     // Make sure we don't write past the end of the partition
-    const uint32_t nvm_writeLength = MIN( sizeof( udc_ctrl_out_buf ), partition[usb_alternateSetting].length - dfu_partitionOffset );
+    const uint32_t nvm_writeLength = MIN( MIN( dfu_writeSize, sizeof( udc_ctrl_out_buf )), partition[usb_alternateSetting].length - (dfu_writeBlockIndex * dfu_blockSize) );
 
     partition[usb_alternateSetting].preWrite( nvm_addr, nvm_writeLength );
 
@@ -470,7 +471,8 @@ static bool USB_Service()
             if( USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.bit.TRCPT0 ) /// Transmit Complete 0
             {
                 ///< Protect against flash overflow
-                if( dfu_partitionOffset < partition[usb_alternateSetting].length )
+                const uint32_t writeEndIndex = (dfu_writeBlockIndex * dfu_blockSize) + dfu_writeSize;
+                if( writeEndIndex < partition[usb_alternateSetting].length )
                 {
                     dfuDownloadToNvm();
                     dfu_status.bState = dfuDNLOAD_IDLE;
@@ -608,7 +610,8 @@ static bool USB_Service()
                         USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0; //< clear
 
                         dfu_status.bState = dfuDNBUSY;
-                        dfu_partitionOffset = request->wValue * 64; /* 0x2000 = 8k  @todo Configure based on platform/variant etc*/
+                        dfu_writeSize = request->wLength;
+                        dfu_writeBlockIndex = request->wValue * dfu_blockSize;
                     }
                     else //< "Completion packet" 6.1.1.1 Zero Length DFU_DNLOAD Request 
                     {
@@ -905,7 +908,7 @@ void bootloader( void )
     resetMagic = 0;
 #endif
 
-    if( enterDfu )
+    if( true || enterDfu )
     {
         dfuStarted();
 

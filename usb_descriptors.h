@@ -84,8 +84,8 @@ typedef struct PACK
 typedef struct PACK
 {
     usb_interface_descriptor_t      dfuBootloader;
-    usb_interface_descriptor_t      dfuCalibrationData;
     usb_interface_descriptor_t      dfuHardwareData;
+    usb_interface_descriptor_t      dfuCalibrationData;
 } usb_configuration_hierarchy_extended_t;
 
 typedef struct PACK
