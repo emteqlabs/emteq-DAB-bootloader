@@ -15,11 +15,31 @@
     {
         "type": "default",
         "project": "dx1elf2dfu\\dx1elf2dfu.exe",
+        "name": "dx1elf2dfu - Calib_EmteqDAB_00015",
+        "stopOnEntry": false,
+        "args": [
+            "${workspaceRoot}\\dx1elf2dfu\\Calib_EmteqDAB_00015.bin",
+            "${workspaceRoot}\\dx1elf2dfu\\Calib_EmteqDAB_00015.dfu"
+        ]
+    },
+    {
+        "type": "default",
+        "project": "dx1elf2dfu\\dx1elf2dfu.exe",
         "name": "dx1elf2dfu - sketch_may15d",
         "stopOnEntry": false,
         "args": [
-            "${workspaceRoot}\\dx1elf2dfu\\sketch_may15d.ino.elf",
-            "${workspaceRoot}\\dx1elf2dfu\\sketch_may15d.ino.dfu"
+            "${workspaceRoot}\\dx1elf2dfu\\sketch_may18a.ino.elf",
+            "${workspaceRoot}\\dx1elf2dfu\\sketch_may18a.ino.dfu"
+        ]
+    },
+    {
+        "type": "default",
+        "project": "dx1elf2dfu\\dx1elf2dfu.exe",
+        "name": "dx1elf2dfu - emteq-mask-firmware",
+        "stopOnEntry": false,
+        "args": [
+            "C:\\Users\\craig.hutchinson\\AppData\\Local\\Temp\\arduino_build_258305\\emteq-mask-firmware.ino.elf",
+            "C:\\Users\\craig.hutchinson\\AppData\\Local\\Temp\\arduino_build_258305\\emteq-mask-firmware.ino.dfu"
         ]
     }
   ]

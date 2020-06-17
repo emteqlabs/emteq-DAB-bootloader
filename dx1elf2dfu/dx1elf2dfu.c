@@ -165,7 +165,7 @@ void readEh(FILE *fp)
 	eh.e_shstrndx = read_uint16(fp);
 }
 
-static int checkEh(void)
+static int checkEh( const bool silent )
 {
 	int error = 0;
 	const uint8_t ref_ident[7] = { 0x7F, 'E', 'L', 'F', 1, 1, 1 };
@@ -173,22 +173,22 @@ static int checkEh(void)
 	if (memcmp(eh.e_ident, ref_ident, sizeof(ref_ident)))
 	{
 		error = 1;
-		printf("ERROR: wrong e_ident\n");
+		if ( !silent ) printf("ERROR: wrong e_ident\n");
 	}
 	if (eh.e_type != 2)
 	{
 		error = 1;
-		printf("ERROR: wrong e_type 0x%x != 0x2\n",eh.e_type);
+		if( !silent ) printf("ERROR: wrong e_type 0x%x != 0x2\n",eh.e_type);
 	}
 	if (eh.e_machine != 40)
 	{
 		error = 1;
-		printf("ERROR: wrong e_machine 0x%x != 0x28\n",eh.e_machine);
+		if( !silent ) printf("ERROR: wrong e_machine 0x%x != 0x28\n",eh.e_machine);
 	}
 	if (eh.e_version != 1)
 	{
 		error = 1;
-		printf("ERROR: wrong e_version 0x%x != 0x1\n",eh.e_version);
+		if( !silent ) printf("ERROR: wrong e_version 0x%x != 0x1\n",eh.e_version);
 	}
 	return error;
 }
@@ -244,11 +244,22 @@ static struct memory_blob *find_blob(uint32_t address, uint32_t count, struct me
 	}
 
 	addition = malloc(sizeof(struct memory_blob));
+	if( addition == NULL )
+	{
+		printf( "ERROR: addition Memory allocation error \n" );
+		return false;
+	}
 
 	addition->data = malloc(count);
 	addition->address = address;
 	addition->count = count;
 	addition->next = current;
+
+	if( addition->data == NULL )
+	{
+		printf( "ERROR: addition->data Memory allocation error \n" );
+		return false;
+	}
 
 	memset(addition->data, 0xFF, count); /* use a padding_value of 0xFF */
 
@@ -397,46 +408,55 @@ static uint32_t calc_span(uint32_t prior_crc, uint32_t post_crc)
 	return span;
 }
 
-int main(int argc, char *argv[])
+bool readBinToBuffer( FILE* binFp, uint8_t** binary, uint32_t* max_offset )
 {
-	FILE *elffp;
-	FILE *dfufp;
+	// obtain file size:
+	fseek( binFp, 0, SEEK_END );
+	*max_offset = ftell( binFp );
+	rewind( binFp );
+	
+	/* check if program image ends on a 32-bit boundary */
+	const uint32_t imagePadding = *max_offset % 4;
+
+	// allocate memory to contain the whole file:
+	*binary = (uint8_t*)malloc( sizeof( uint8_t ) * (*max_offset + imagePadding));
+	if( *binary == NULL )
+	{
+		printf( "ERROR: Memory allocation error \n" );
+		return false;
+	}
+
+	// copy the file into the buffer:
+	const int result = fread( *binary, 1, *max_offset , binFp );
+	if( result != *max_offset )
+	{
+		printf( "ERROR: BIN file read failed\n" );
+		return false;
+	}
+
+	// Initialise padding to 0xFF
+	if( imagePadding != 0 )
+	{
+		memset( *binary + *max_offset, 0xFF, imagePadding );
+		*max_offset += imagePadding;
+	}
+
+	return true;
+}
+
+bool readElfToBuffer( FILE* elffp, uint8_t** binary, uint32_t* max_offset, const uint32_t userAppAddress )
+{
 	int i, j;
-	Elf32_Phdr *ph;
+	Elf32_Phdr* ph;
 	Elf32_Shdr sh;
-	struct memory_blob *blob, *pm_list;
-	uint32_t phy_addr, dfu_crc32, stuff_size, max_offset;
-	uint8_t scratchpad[64 /* sized to be at least as large as the DFU suffix */];
-	uint32_t pre_crc, post_crc, span;
-	uint8_t *binary;
-
-	if (argc < 3)
-	{
-		printf("%s <input.elf> <output.dfu> [0x2000]\n", argv[0]);
-		return -1;
-	}
-
-	/// We overload the user-app address based on command-line parameter
-	const uint32_t defaultUserAppAddress = userAppAddress;
-	uint32_t userAppAddress = defaultUserAppAddress;
-	if (argc >= 4)
-	{
-		userAppAddress = (uint32_t)strtol(argv[3], NULL, 0);
-	}
-
-	elffp = fopen(argv[1], "rb");
-	if (!elffp)
-	{
-		printf("ERROR: unable to open file <%s> for reading\n", argv[1]);
-		return -1;
-	}
+	struct memory_blob* blob, * pm_list;
+	uint32_t phy_addr, stuff_size;
 
 	/*
 	read (and check) ELF header
 	*/
-
-	readEh(elffp); 
-	if (checkEh()) 
+	readEh( elffp );
+	if( checkEh(false) )
 	{
 		printEh();
 		return -1;
@@ -446,10 +466,16 @@ int main(int argc, char *argv[])
 	read ELF Program Headers
 	*/
 
-	ph = (Elf32_Phdr *)malloc(eh.e_phnum * sizeof(Elf32_Phdr));
-	for(i=0;i<eh.e_phnum;i++)
+	ph = (Elf32_Phdr*)malloc( eh.e_phnum * sizeof( Elf32_Phdr ) );
+	if( ph == NULL )
 	{
-		ph[i] = readPh(i,elffp);
+		printf( "ERROR: Elf32_Phdr Memory allocation error \n" );
+		return false;
+	}
+
+	for( i = 0; i < eh.e_phnum; i++ )
+	{
+		ph[i] = readPh( i, elffp );
 	}
 
 	/*
@@ -457,32 +483,32 @@ int main(int argc, char *argv[])
 	*/
 
 	pm_list = NULL;
-	for(i=0;i<eh.e_shnum;i++)
+	for( i = 0; i < eh.e_shnum; i++ )
 	{
-		sh = readSh(i,elffp);
+		sh = readSh( i, elffp );
 
-		if (0 == (sh.sh_flags & 0x6))
+		if( 0 == (sh.sh_flags & 0x6) )
 			continue;
 
-		if ( (1 /* SHT_PROGBITS */ == sh.sh_type) || (14 /* SHT_INIT_ARRAY */ == sh.sh_type) || (15 /* SHT_FINI_ARRAY */ == sh.sh_type) || (16 /* SHT_PREINIT_ARRAY */ == sh.sh_type) || (0x70000001 /* SHT_HIPROC|SHT_PROGBITS */ == sh.sh_type) )
+		if( (1 /* SHT_PROGBITS */ == sh.sh_type) || (14 /* SHT_INIT_ARRAY */ == sh.sh_type) || (15 /* SHT_FINI_ARRAY */ == sh.sh_type) || (16 /* SHT_PREINIT_ARRAY */ == sh.sh_type) || (0x70000001 /* SHT_HIPROC|SHT_PROGBITS */ == sh.sh_type) )
 		{
-			for (j = 0; j < eh.e_phnum; j++)
+			for( j = 0; j < eh.e_phnum; j++ )
 			{
-				if ( (sh.sh_addr >= ph[j].p_vaddr) && (sh.sh_addr < (ph[j].p_vaddr + ph[j].p_memsz)) && ph[j].p_filesz )
+				if( (sh.sh_addr >= ph[j].p_vaddr) && (sh.sh_addr < (ph[j].p_vaddr + ph[j].p_memsz)) && ph[j].p_filesz )
 				{
 					phy_addr = ph[j].p_paddr + (sh.sh_addr - ph[j].p_vaddr);
-					blob = find_blob(phy_addr, sh.sh_size, &pm_list);
+					blob = find_blob( phy_addr, sh.sh_size, &pm_list );
 
-					fseek(elffp, sh.sh_offset, SEEK_SET);
-					fread(blob->data, blob->count, 1, elffp);
+					fseek( elffp, sh.sh_offset, SEEK_SET );
+					fread( blob->data, blob->count, 1, elffp );
 					break;
 				}
 			}
-		} 
+		}
 	}
 
 	/* we've read everything we need from the ELF file, so we can close the file */
-	fclose(elffp);
+	fclose( elffp );
 
 	/*
 	sanity check blob list
@@ -490,40 +516,33 @@ int main(int argc, char *argv[])
 
 	blob = pm_list;
 
-	if (!blob)
+	if( !blob )
 	{
-		printf("ERROR: nothing useable in ELF; DFU cannot be created\n");
+		printf( "ERROR: nothing useable in ELF; DFU cannot be created\n" );
 		return -1;
 	}
 
 	/// @todo Allow relocation via parameter?
 	int blobOffset = 0;
-	if (blob->address < userAppAddress)
+	if( blob->address < userAppAddress )
 	{
-		printf("WARNING: provided ELF intrudes into bootloader space; DFU shall be relocated to 0x%x\n", userAppAddress);
+		printf( "WARNING: provided ELF intrudes into bootloader space; DFU shall be relocated to 0x%x\n", userAppAddress );
 		blobOffset = userAppAddress - blob->address;
 	}
 	else
-	if (blob->address != userAppAddress)
-	{
-		printf("ERROR: provided ELF must start at 0x%x; DFU cannot be created\n", userAppAddress);
-		return -1;
-	}
-
-	dfufp = fopen(argv[2], "wb");
-	if (!dfufp)
-	{
-		printf("ERROR: unable to open file <%s> for writing\n", argv[2]);
-		return -1;
-	}
+		if( blob->address != userAppAddress )
+		{
+			printf( "ERROR: provided ELF must start at 0x%x; DFU cannot be created\n", userAppAddress );
+			return -1;
+		}
 
 #if 1
 
 	blob = pm_list;
 	i = 0;
-	while (blob)
+	while( blob )
 	{
-		printf("Blob[%u] Address=%x Count=%u\n", i, blob->address, blob->count);
+		printf( "Blob[%u] Address=%x Count=%u\n", i, blob->address, blob->count );
 
 		/* advance to next blob */
 		blob = blob->next;
@@ -533,14 +552,14 @@ int main(int argc, char *argv[])
 
 	blob = pm_list; phy_addr = userAppAddress;
 
-	while (blob)
+	while( blob )
 	{
 		stuff_size = blob->address + blobOffset - phy_addr;
 
-		if (stuff_size)
+		if( stuff_size )
 		{
 			/* there is a gap, so create a blank region here */
-			find_blob(phy_addr, stuff_size, &pm_list);
+			find_blob( phy_addr, stuff_size, &pm_list );
 		}
 
 		/* figure the best-case starting point of the next blob */
@@ -550,33 +569,105 @@ int main(int argc, char *argv[])
 		blob = blob->next;
 	}
 
-	max_offset = phy_addr - userAppAddress;
+	*max_offset = phy_addr - userAppAddress;
 
 	/* check if program image ends on a 32-bit boundary */
-	if (phy_addr & 0x3)
+	if( phy_addr & 0x3 )
 	{
 		stuff_size = 4 - (phy_addr & 0x3);
-		max_offset += stuff_size;
+		*max_offset += stuff_size;
 		/* create blank region at end to pad out to whole 32-bits (as the CRC will require this) */
-		find_blob(phy_addr, stuff_size, &pm_list);
+		find_blob( phy_addr, stuff_size, &pm_list );
 	}
 
 	/*
-	The upcoming CRC calculations are artificially complicated with using blobs, so we 
+	The upcoming CRC calculations are artificially complicated with using blobs, so we
 	take the approach of moving all the blobs into a malloc-ed linear region of memory.
 	*/
 
-	binary = malloc(max_offset);
-
-	while (pm_list)
+	*binary = malloc( *max_offset );
+	if( *binary == NULL )
 	{
-		blob = pm_list;
-		memcpy(binary + blob->address + blobOffset - userAppAddress, blob->data, blob->count);
-		pm_list = pm_list->next;
-		free(blob);
+		printf( "ERROR: binary Memory allocation error \n" );
+		return false;
 	}
 
-	if (userAppCrcEmbed)
+	while( pm_list )
+	{
+		blob = pm_list;
+		memcpy( *binary + blob->address + blobOffset - userAppAddress, blob->data, blob->count );
+		pm_list = pm_list->next;
+		free( blob );
+	}
+
+	return true;
+}
+
+int main( int argc, char* argv[] )
+{
+	uint32_t phy_addr, dfu_crc32, stuff_size, max_offset;
+	uint8_t scratchpad[64 /* sized to be at least as large as the DFU suffix */];
+	uint32_t pre_crc, post_crc, span;
+	uint8_t* binary;
+
+	if( argc < 3 )
+	{
+		printf( "%s <input.elf/bin> <output.dfu> [0x2000]\n", argv[0] );
+		return -1;
+	}
+
+	/// We overload the user-app address based on command-line parameter
+	const uint32_t defaultUserAppAddress = 0x2000; //< 8KiB @todo Defined in .ld but needs to be known by dx1elf2dfu! */
+	uint32_t userAppAddress = defaultUserAppAddress;
+	if( argc >= 4 )
+	{
+		userAppAddress = (uint32_t)strtol( argv[3], NULL, 0 );
+	}
+
+	const char* inFilename = argv[1];
+	FILE* infp = fopen( inFilename, "rb" );
+	if( !infp )
+	{
+		printf( "ERROR: unable to open file <%s> for reading\n", argv[1] );
+		return -1;
+	}
+
+	readEh( infp );
+	const bool isElf = (checkEh(true) == 0);
+	rewind( infp );
+
+	bool isUserApp;
+	if( isElf )
+	{
+		if( !readElfToBuffer( infp, &binary, &max_offset, userAppAddress ) )
+		{
+			printf( "ERROR: failed to read ELF input file" );
+			return -1;
+		}
+
+		isUserApp = true;
+	}
+	else
+	{
+		printf( "INFO: Source file isn't a supported ELF, reading as raw BIN\n", inFilename );
+
+		// @todo Can we detect if a BIN file is a firmware image?
+		isUserApp = false;
+		if( userAppCrcEmbed )
+		{
+			printf( "INFO: User-App Vector CRC embed not supported on raw BIN\n" );
+		}
+
+		if( !readBinToBuffer( infp, &binary, &max_offset ) )
+		{
+			printf( "ERROR: failed to read BIN input file" );
+			return -1;
+		}
+
+
+	}
+
+	if ( isUserApp && userAppCrcEmbed)
 	{
 	    ///as a sanity check, we check what the value is of the vector entry we over-write with the length	
 		stuff_size  = (uint32_t)binary[userAppLengthEmbedOffset + 3] << 24;
@@ -651,6 +742,14 @@ int main(int argc, char *argv[])
 	/* start the DFU CRC32 calculation */
 	dfu_crc32 = crc32_calc(0xFFFFFFFF, binary, max_offset);
 
+	const char* outFileame = argv[2];
+	FILE* dfufp = fopen( outFileame, "wb" );
+	if( !dfufp )
+	{
+		printf( "ERROR: unable to open file <%s> for writing\n", outFileame );
+		return -1;
+	}
+
 	/* write the tweaked image into the DFU file */
 	fwrite(binary, max_offset, 1, dfufp);
 
@@ -661,7 +760,7 @@ int main(int argc, char *argv[])
 	append DFU standard suffix
 	*/
 
-	i = 0;
+	int i = 0;
 	scratchpad[i++] = 0xFF; // bcdDevice
 	scratchpad[i++] = 0xFF;
 	scratchpad[i++] = (uint8_t)(usbProductId >> 0); // idProduct
@@ -686,6 +785,9 @@ int main(int argc, char *argv[])
 	fwrite(scratchpad, i, 1, dfufp);
 
 	fclose(dfufp);
+
+
+	printf( "DONE: Successfully written '%s' for DFU update\n", outFileame );
 
 	return 0;
 }

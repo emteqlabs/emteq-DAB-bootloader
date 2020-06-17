@@ -67,6 +67,11 @@
                 "LD=ld"
             ],
             "output": "dx1elf2dfu\\dx1elf2dfu.exe"
+        },
+        {
+            "taskLabel": "task-dx1elf2dfu",
+            "appliesTo": "dx1elf2dfu/dx1elf2dfu.exe",
+            "type": "launch"
         }
     ]
 }
