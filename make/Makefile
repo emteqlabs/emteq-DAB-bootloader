@@ -44,7 +44,7 @@ CC= arm-none-eabi-gcc
 STRIP= arm-none-eabi-strip
 OBJCOPY= arm-none-eabi-objcopy
 SIZE= arm-none-eabi-size
-ELF2DFU=../dx1elf2dfu/dx1elf2dfu
+ELF2DFU=../bin2dfu/bin2dfu
 
 CFLAGS += -W -Wall --std=gnu11 -Os
 CFLAGS += -Wno-address-of-packed-member
@@ -169,7 +169,7 @@ dfu: $(BIN_DIR)/$(BIN).dfu
 
 $(BIN_DIR)/$(BIN).dfu: $(BIN_DIR)/$(BIN).elf
 	@echo size:
-	@$(ELF2DFU) $^ $@
+	@$(ELF2DFU) $^ $@ 0x0000
 
 clean:
 	@echo clean

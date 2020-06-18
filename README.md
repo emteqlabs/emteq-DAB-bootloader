@@ -15,7 +15,7 @@ Despite the small size, it packs a punch.  Unlike other bootloaders whose integr
 
 Downloading can be accomplished with any software that supports DFU, which includes [dfu-util](http://dfu-util.sourceforge.net/) and [webdfu](https://github.com/devanlai/webdfu).
 
-Using the provided dx1elf2dfu utility, one can create a .dfu file.  Your DFU software of choice will accept that file.
+Using the provided bin2dfu utility, one can create a .dfu file.  Your DFU software of choice will accept that file.
 
 With [dfu-util](http://dfu-util.sourceforge.net/), downloading is like so:
 

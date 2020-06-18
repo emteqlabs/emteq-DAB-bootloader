@@ -53,8 +53,8 @@
             }
         },
         {
-            "taskName": "dx1elf2dfu",
-            "appliesTo": "dx1elf2dfu/Makefile",
+            "taskName": "bin2dfu",
+            "appliesTo": "bin2dfu/Makefile",
             "contextType": "build",
             "type": "launch",
             "command": "make",
@@ -62,15 +62,15 @@
                 "msvc_x64"
             ],
             "args": [
-                "-C dx1elf2dfu/",
+                "-C bin2dfu/",
                 "CC=cl",
                 "LD=ld"
             ],
-            "output": "dx1elf2dfu\\dx1elf2dfu.exe"
+            "output": "bin2dfu\\bin2dfu.exe"
         },
         {
-            "taskLabel": "task-dx1elf2dfu",
-            "appliesTo": "dx1elf2dfu/dx1elf2dfu.exe",
+            "taskLabel": "task-bin2dfu",
+            "appliesTo": "bin2dfu/bin2dfu.exe",
             "type": "launch"
         }
     ]
