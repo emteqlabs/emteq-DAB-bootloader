@@ -46,21 +46,27 @@ OBJCOPY= arm-none-eabi-objcopy
 SIZE= arm-none-eabi-size
 ELF2DFU=../bin2dfu/bin2dfu
 
-CFLAGS += -W -Wall --std=gnu11 -Os
-CFLAGS += -Wno-address-of-packed-member
+CFLAGS += -W -Wall --std=gnu11
+CFLAGS += -Wno-address-of-packed-member 
 CFLAGS += -fno-diagnostics-show-caret
 CFLAGS += -fdata-sections -ffunction-sections
 CFLAGS += -funsigned-char -funsigned-bitfields
 CFLAGS += -mthumb
 CFLAGS += -MD -MP -MT $(BUILD_DIR)/$(*F).o -MF $(BUILD_DIR)/$(@F).d
 
-LDFLAGS += -mthumb
-LDFLAGS += -Wl,--gc-sections -Wl,--print-memory-usage
+# TODO: http://www.muppetlabs.com/~breadbox/software/tiny/teensy.html
+#-nostartfiles
+#-nostdlib
+LDFLAGS += -mthumb    
+LDFLAGS += -Wl,--gc-sections,--print-memory-usage,-Map=$(BUILD_DIR)memory.map
 LDFLAGS += -Wl,--script=../linker/samd11d14.ld
+LDFLAGS += -Wl,-z,norelro -Wl,--hash-style=gnu -Wl,--build-id=none
 
 ifdef DEBUG
 CFLAGS += -g -Og
-LDFLAGS += -g -Og
+else
+CFLAGS += -Os -s
+LDFLAGS += -Os -Wl,--strip-all,--strip-debug
 endif
 
 INCLUDES += \
