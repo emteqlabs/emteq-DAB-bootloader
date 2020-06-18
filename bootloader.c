@@ -611,7 +611,7 @@ static bool USB_Service()
 
                         dfu_status.bState = dfuDNBUSY;
                         dfu_writeSize = request->wLength;
-                        dfu_writeBlockIndex = request->wValue * dfu_blockSize;
+                        dfu_writeBlockIndex = request->wValue;
                     }
                     else //< "Completion packet" 6.1.1.1 Zero Length DFU_DNLOAD Request 
                     {
@@ -908,7 +908,7 @@ void bootloader( void )
     resetMagic = 0;
 #endif
 
-    if( enterDfu )
+    if( true || enterDfu )
     {
         dfuStarted();
 
