@@ -1,4 +1,4 @@
-DX1ELF2DFU_C = bin2dfu.c
+BIN2DFU_C = bin2dfu.c
 
 CC?=gcc
 
@@ -9,8 +9,8 @@ LDFLAGS = /debug:full
 
 all: bin2dfu$(EXE_SUFFIX)
 
-bin2dfu$(EXE_SUFFIX): Makefile $(DX1ELF2DFU_C)
-	$(CC) $(DX1ELF2DFU_C) -o $@ $(CFLAGS)
+bin2dfu$(EXE_SUFFIX): Makefile $(BIN2DFU_C)
+	$(CC) $(BIN2DFU_C) -o $@ $(CFLAGS)
 	
 
 clean:
