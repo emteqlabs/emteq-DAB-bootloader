@@ -48,6 +48,7 @@ enum
     USB_STR_DFU_Bootloader,
     USB_STR_DFU_CalibrationData,
     USB_STR_DFU_HardwareData,
+    USB_STR_WCID_Microsoft = 0xEE ///< @note Windows does not implicitly provide driver, WCID allows specifying the use of WinUSB default
 #endif
 };
 
@@ -97,18 +98,11 @@ typedef struct PACK
 //-----------------------------------------------------------------------------
 extern usb_device_descriptor_t usb_device_descriptor;
 extern usb_configuration_hierarchy_t usb_configuration_hierarchy;
+extern usb_microsoft_compat_descriptor_t usb_wcid_microsoft;
 
 #if USE_STRING_DESCRIPTORS
-typedef struct PACK
-{
-    uint8_t   bLength;
-    uint8_t   bDescriptorType;
-    uint16_t  bString[];
-} usb_string_descriptor_t;
-
 usb_string_descriptor_t* getStringDescriptor(const  uint8_t index);
 
-extern uint_least16_t usb_serial_number[16];
 #endif
 
 #endif // _USB_DESCRIPTORS_H_

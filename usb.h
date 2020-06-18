@@ -166,12 +166,45 @@ typedef struct PACK
   uint8_t   iInterface;
 } usb_interface_descriptor_t;
 
+#if 0
 typedef struct PACK
 {
     uint8_t   bLength;
     uint8_t   bDescriptorType;
     uint16_t  wLANGID;
 } usb_string_descriptor_zero_t;
+#endif
+
+#if USE_STRING_DESCRIPTORS
+typedef struct PACK
+{
+    uint8_t   bLength;
+    uint8_t   bDescriptorType;
+    uint16_t  bString[];
+} usb_string_descriptor_t;
+#endif
+
+/** Microsoft WCID descriptor
+* @see https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-defined-usb-descriptors
+*/
+typedef struct PACK
+{
+    uint8_t bFirstInterfaceNumber;
+    uint8_t reserved1;
+    uint8_t compatibleID[8];
+    uint8_t subCompatibleID[8];
+    uint8_t reserved2[6];
+} USB_MicrosoftCompatibleDescriptor_Interface;
+
+typedef struct PACK
+{
+    uint32_t dwLength;
+    uint16_t bcdVersion;
+    uint16_t wIndex;
+    uint8_t bCount;
+    uint8_t reserved[7];
+    USB_MicrosoftCompatibleDescriptor_Interface interfaces[];
+} usb_microsoft_compat_descriptor_t;
 
 /*- Prototypes --------------------------------------------------------------*/
 

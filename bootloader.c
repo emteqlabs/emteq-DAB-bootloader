@@ -103,6 +103,7 @@ extern char __origin_BOOT_FLASH[], __length_BOOT_FLASH[]; ///< @note Defined in 
 extern char __origin_USERPAGE_FLASH[], __length_USERPAGE_FLASH[]; ///< @note Defined in .ld linker
 extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defined in .ld linker
 extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
+extern char __stack_start__[], __stack_end__[]; ///< @note Defined in .ld linker
 
 
 static void nvmctrl_wait_ready()
@@ -258,6 +259,7 @@ static const Partition partition[USB_ALTERNATESETTING_COUNT] =
    , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH, nvmctrl_userpage_PreWrite }
 };
 
+static volatile uint32_t* userAppStackPointer = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppStackVectorOffset);
 static volatile uint32_t* userAppResetVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppResetVectorOffset);
 static volatile uint32_t* userAppCrcVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppCrcEmbedOffset);
 static volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppLengthEmbedOffset);
@@ -383,7 +385,15 @@ static bool checkCrcRegion( const uint32_t address, const uint32_t length )
 
 static bool userImageValid()
 {
-    /// Check on the Reset_Handler address
+    /// Check on the Stack-pointer address points somewhere in the RAM
+    const uint32_t currentUserAppStackPointer = *userAppStackPointer;
+    if( (currentUserAppStackPointer <= (uint32_t)__stack_start__)
+        || (currentUserAppStackPointer > (uint32_t)__stack_end__ ) )
+    {
+        return false;
+    }
+
+    /// Check on the Reset_Handler address needs to point inside the Flash region for user-app
     const uint32_t currentUserAppResetVector = *userAppResetVector;
     if( (currentUserAppResetVector < partition[USB_ALTERNATESETTING_App].origin)
         || (currentUserAppResetVector >= partition[USB_ALTERNATESETTING_App].origin + partition[usb_alternateSetting].length) )
@@ -515,11 +525,42 @@ static bool USB_Service()
     const uint8_t index = request->wValue & 0xff;
     const uint16_t length = request->wLength;
 
+    // handle Microsoft thing
+    if (USB_CMD(IN, DEVICE, VENDOR) == request->bmRequestType) {
+      // 0x20, since we put a whitespace (=0x20) after "MSFT100" String.
+      if ((request->bRequest == 0x20) && (request->wIndex == 0x0004)) {
+        udc_control_send(  (const uint8_t*)&usb_wcid_microsoft, MIN(usb_wcid_microsoft.dwLength, length));
+      } else {
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+      }
+      return true;
+    }
 
     //http://www.usbmadesimple.co.uk/ums_4.htm
     /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
     switch( request->bmRequestType & 0x7F )
     {
+#if 0
+        case SIMPLE_USB_CMD( DEVICE, VENDOR ):
+            {
+                switch( request->bRequest )
+                {
+                    case 0x20: //< @todo CHeck the WCID spec accordingly!?
+                        if( request->wIndex == 0x0004 )
+                        {
+                            udc_control_send( (const uint8_t*)&usb_wcid_microsoft, MIN(usb_wcid_microsoft.dwLength, length) );
+                        }
+                        else
+                            USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+                        break;
+
+                    default:
+                        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+                        break;
+                }
+            }
+            break;
+#endif
         case SIMPLE_USB_CMD( DEVICE, STANDARD ):
         case SIMPLE_USB_CMD( INTERFACE, STANDARD ):
             switch( request->bRequest )
@@ -527,7 +568,7 @@ static bool USB_Service()
                 case USB_GET_DESCRIPTOR:
                     if( USB_DEVICE_DESCRIPTOR == type )
                     {
-                        udc_control_send( (const uint8_t*)&usb_device_descriptor, length );
+                        udc_control_send( (const uint8_t*)&usb_device_descriptor, MIN( length, usb_device_descriptor.bLength) );
                     }
                     else if( USB_CONFIGURATION_DESCRIPTOR == type )
                     {

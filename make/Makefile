@@ -163,12 +163,12 @@ $(BUILD_DIR) $(BIN_DIR):
 
 size: $(BIN_DIR)/$(BIN).elf
 	@echo size:
-	@$(SIZE) -t $^
+	@$(SIZE) -A -t $^
 	
 dfu: $(BIN_DIR)/$(BIN).dfu
 
 $(BIN_DIR)/$(BIN).dfu: $(BIN_DIR)/$(BIN).elf
-	@echo size:
+	@echo "Elf to DFU:"
 	@$(ELF2DFU) $^ $@ 0x0000
 
 clean:

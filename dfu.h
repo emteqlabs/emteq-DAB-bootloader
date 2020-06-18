@@ -14,6 +14,11 @@
 
 /// @see https://usb.org/sites/default/files/DFU_1.1.pdf
 
+/** @{ USB Class */
+#define DFU_INTERFACE_CLASS 0xFE
+#define DFU_INTERFACE_SUBCLASS 0x01
+#define DFU_INTERFACE_PROTOCOL 0x02
+/** @} */
 
 /** "DFU class-specific requests are employed to accomplish the upgrade operations" Table 3.2 DFU Class-Specific Request Values
 */
@@ -110,10 +115,10 @@ enum DfuStatus
 
 enum DfuAttributes
 {
-      USB_DFU_ATTR_CAN_DNLOAD = 0b00000001
-    , USB_DFU_ATTR_CAN_UPLOAD = 0b00000010
-    , USB_DFU_ATTR_MANIFESTATION_TOLERANT = 0b00000100
-    , USB_DFU_ATTR_WILL_DETACH = 0b00001000
+      USB_DFU_ATTR_CAN_DNLOAD = 1 << 0
+    , USB_DFU_ATTR_CAN_UPLOAD = 1 << 1
+    , USB_DFU_ATTR_MANIFESTATION_TOLERANT = 1 << 2
+    , USB_DFU_ATTR_WILL_DETACH = 1 << 3
 };
 
 typedef struct PACK

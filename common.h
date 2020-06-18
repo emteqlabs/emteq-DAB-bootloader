@@ -18,6 +18,7 @@ static const uint16_t usbProductId = 0xEC5A;
 static const bool userAppCrcEmbed = true; ///@todo Configure via parameter/platform!
 
 ///@{ Vector address'
+static const uint32_t userAppStackVectorOffset = 0x00;
 static const uint32_t userAppResetVectorOffset = 0x04; ///< reset vector of application @APP_START_ADDRESS+4
 
 /**@{ When userAppCrcEmbed==true we define some reserved vectors to store data within the image wihtout adding to the size:
