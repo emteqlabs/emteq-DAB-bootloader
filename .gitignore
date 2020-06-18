@@ -9,3 +9,5 @@ make/build/*
 /.vs
 /make/bin
 /Version.generated.h
+/dx1elf2dfu/dx1elf2dfu.*
+*.pdb
