@@ -2,8 +2,17 @@
 #define _DFU_H_
 
 #include <stdint.h>
+#include <sam.h>
+
+/// 64 SAMD11 or 512 SAMD51 
+static const uint16_t dfu_blockSize = 64;
+/// @todo Blocks the size of a page? NVMCTRL_PAGE_SIZE; ///< 64 on SAMD11 and 512 on SAMD51
+
+#define dfu_endpointSize  0x3
+/// @todo Use a pipe of size Page? (NVMCTRL_PAGE_SIZE == 64  ? 0x3 :  NVMCTRL_PAGE_SIZE == 512 ? 0x6 : 0x0 )
 
 /// @see https://usb.org/sites/default/files/DFU_1.1.pdf
+
 
 /** "DFU class-specific requests are employed to accomplish the upgrade operations" Table 3.2 DFU Class-Specific Request Values
 */
