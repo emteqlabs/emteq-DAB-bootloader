@@ -95,8 +95,8 @@ static __attribute__( (aligned( 4 )) ) dfu_getstatus_t dfu_status =
 };
 
 static __attribute__( (aligned( 4 )) ) udc_mem_t udc_mem[USB_EPT_NUM];
-static __attribute__( (aligned( 4 )) ) uint32_t udc_ctrl_in_buf[16];// NVMCTRL_PAGE_SIZE / sizeof(uint32_t)];
-static __attribute__( (aligned( 4 )) ) uint32_t udc_ctrl_out_buf[16];//NVMCTRL_PAGE_SIZE /sizeof(uint32_t)];
+static __attribute__( (aligned( 4 )) ) uint8_t udc_ctrl_in_buf[dfu_blockSize];
+static __attribute__( (aligned( 4 )) ) uint8_t udc_ctrl_out_buf[dfu_blockSize];
 
 extern char __origin_APP_FLASH[],  __length_APP_FLASH[]; ///< @note Defined in .ld linker
 extern char __origin_BOOT_FLASH[], __length_BOOT_FLASH[]; ///< @note Defined in .ld linker
@@ -315,7 +315,7 @@ static void udc_control_send( const uint8_t* const data, const uint32_t size )
 
     udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT( size )
         | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE( 0 )
-        | USB_DEVICE_PCKSIZE_SIZE( 3 /*64 Byte*/ );
+        | USB_DEVICE_PCKSIZE_SIZE( dfu_endpointSize /*64 SAMD11 or 512 SAMD51 */ );
     /// @ todo MULTI_PACKET_SIZE?
 
     USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT1; //< clear
@@ -427,10 +427,10 @@ static bool USB_Service()
         USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK1RDY = 1;
 
         udc_mem[0].in.ADDR.reg = (uint32_t)udc_ctrl_in_buf;
-        udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT( 0 ) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE( 0 ) | USB_DEVICE_PCKSIZE_SIZE( 3 /*64 Byte*/ );
+        udc_mem[0].in.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT( 0 ) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE( 0 ) | USB_DEVICE_PCKSIZE_SIZE( dfu_endpointSize );
 
         udc_mem[0].out.ADDR.reg = (uint32_t)udc_ctrl_out_buf;
-        udc_mem[0].out.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT( 64 ) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE( 0 ) | USB_DEVICE_PCKSIZE_SIZE( 3 /*64 Byte*/ );
+        udc_mem[0].out.PCKSIZE.reg = USB_DEVICE_PCKSIZE_BYTE_COUNT(dfu_blockSize ) | USB_DEVICE_PCKSIZE_MULTI_PACKET_SIZE( 0 ) | USB_DEVICE_PCKSIZE_SIZE(dfu_endpointSize);
 
         USB->DEVICE.DeviceEndpoint[0].EPSTATUSCLR.bit.BK0RDY = 1;
 
@@ -900,15 +900,15 @@ void bootloader( void )
     configureClock();
 
     // Check entry to DFU 
-    const bool enterDfu = !userImageValid()
-        || hasBootloaderResetMagic();
+    const bool enterDfu = (!userImageValid()
+        || hasBootloaderResetMagic());
 
 #ifdef USE_DBL_TAP
     /* a 'double tap' has happened, so run bootloader */
     resetMagic = 0;
 #endif
 
-    if( true || enterDfu )
+    if( enterDfu )
     {
         dfuStarted();
 
