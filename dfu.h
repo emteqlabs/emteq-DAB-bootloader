@@ -5,10 +5,11 @@
 #include <sam.h>
 
 /// 64 SAMD11 or 512 SAMD51 
-#define dfu_blockSize NVMCTRL_PAGE_SIZE
+#define dfu_blockSize 64
+//NVMCTRL_PAGE_SIZE
 /// @todo Blocks the size of a page? NVMCTRL_PAGE_SIZE; ///< 64 on SAMD11 and 512 on SAMD51
 
-#define dfu_endpointSize (NVMCTRL_PAGE_SIZE == 64  ? 0x3 :  NVMCTRL_PAGE_SIZE == 512 ? 0x6 : 0x0 )
+#define dfu_endpointSize (dfu_blockSize == 64  ? 0x3 :  dfu_blockSize == 512 ? 0x6 : 0x0 )
 /// @todo Use a pipe of size Page? 
 
 /// @see https://usb.org/sites/default/files/DFU_1.1.pdf
