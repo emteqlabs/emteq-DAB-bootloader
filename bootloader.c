@@ -953,7 +953,7 @@ void bootloader( void )
     if( enterDfu )
     {
         usb_string_descriptor_t* serialDescriptor = getStringDescriptor( USB_STR_SERIAL_NUMBER );
-        readSerialNumberBase64Utf16( serialDescriptor->bString, serialDescriptor->bLength - sizeof( *serialDescriptor ) );
+        readSerialNumberBase64Utf16( serialDescriptor->bString, (serialDescriptor->bLength - sizeof( *serialDescriptor )) / sizeof(serialDescriptor->bString[0]) );
 
         dfuStarted();
 
