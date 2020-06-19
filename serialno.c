@@ -75,6 +75,31 @@ static uint16_t encodeBase64Utf16( uint16_t* const encodedBuffer, const uint16_t
 bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferLength )
 {
 #if __SAMD51__
+
+	uint16_t* cursor = buffer;
+	uint16_t* const cursorEnd = buffer + bufferLength;
+
+	// Add prefix
+	if( cursor + 3 < cursorEnd )
+	{
+		*cursor++ = 'D';
+		*cursor++ = 'A';
+		*cursor++ = 'B';
+	}
+
+#if 0 //< HW version in serial or not?
+	const uint8_t hardwareVersion[3] = {
+		9, 3, 5
+	};
+	cursor += encodeBase64Utf16( cursor, cursorEnd - cursor, (const uint8_t*)hardwareVersion, (uint16_t)sizeof( hardwareVersion ) );
+#endif
+
+	// Add delimiter
+	if( cursor + 1 < cursorEnd )
+	{
+		*cursor++ = '-';
+	}
+
     /** @see http://ww1.microchip.com/downloads/en/DeviceDoc/60001507E.pdf
     * Chapter: 9.6 Serial Number
     * Page: 60
@@ -83,8 +108,8 @@ bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferL
           *(uint32_t*)0x008061FC, *(uint32_t*)0x00806010
         , *(uint32_t*)0x00806014, *(uint32_t*)0x00806018
     };
+	cursor += encodeBase64Utf16( cursor, cursorEnd-cursor, (const uint8_t*)serialNumber, (uint16_t)sizeof(serialNumber) );
 
-	encodeBase64Utf16( buffer, bufferLength, (const uint8_t*)serialNumber, MIN( bufferLength, (uint16_t)sizeof(serialNumber) ) );
 #else
 #error "Not implemented"
 #endif
