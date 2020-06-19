@@ -959,6 +959,7 @@ void bootloader( void )
 
 #ifdef __SAMD51__
         // Disable NVM caches, per errata.
+        // @WARNING DSU requirs cache to be enabled for CRC calculations
        // NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
        // NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
 

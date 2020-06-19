@@ -10,7 +10,5 @@ make/build/*
 /make/bin
 /Version.generated.h
 *.pdb
-*.exe
 *.ilk
 *.obj
-*.exe

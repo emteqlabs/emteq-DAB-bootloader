@@ -18,8 +18,7 @@
         "name": "bin2dfu - Calib_EmteqDAB_00015",
         "stopOnEntry": false,
         "args": [
-            "${workspaceRoot}\\bin2dfu\\Calib_EmteqDAB_00015.bin",
-            "${workspaceRoot}\\bin2dfu\\Calib_EmteqDAB_00015.dfu"
+            "\"C:\\Calibration\\2020-06-17 Factory Calibration Image - EmteqDAB - 12nA - 00015\\2020-06-17 Factory Calibration Image - EmteqDAB - 12nA - 00013.bin\""
         ]
     },
     {

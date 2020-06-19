@@ -609,26 +609,50 @@ int main( int argc, char* argv[] )
 	uint8_t scratchpad[64 /* sized to be at least as large as the DFU suffix */];
 	uint32_t pre_crc, post_crc, span;
 	uint8_t* binary;
-
-	if( argc < 3 )
-	{
-		printf( "%s <input.elf/bin> <output.dfu> [0x2000]\n", argv[0] );
-		return -1;
-	}
-
+	
 	/// We overload the user-app address based on command-line parameter
 	const uint32_t defaultUserAppAddress = 0x2000; //< 8KiB @todo Defined in .ld but needs to be known by dx1elf2dfu! */
 	uint32_t userAppAddress = defaultUserAppAddress;
-	if( argc >= 4 )
+
+	const char* inFilename = NULL; 
+	const char* outFilename = NULL;
+
+	if( argc == 1 )
 	{
-		userAppAddress = (uint32_t)strtol( argv[3], NULL, 0 );
+		printf( "%s <input.elf/bin> [<output.dfu> [0x2000]]\n", argv[0] );
+		return -1;
+	}
+	else
+	if( argc == 2 )
+	{
+		inFilename = argv[1];
+		outFilename = strdup( inFilename );
+		char* extension = outFilename + strlen( outFilename ) - 3;
+		extension[0] = 'd';
+		extension[1] = 'f';
+		extension[2] = 'u';
+	}
+	else
+	{
+		if( argc < 3 )
+		{
+			printf( "%s <input.elf/bin> <output.dfu> [0x2000]\n", argv[0] );
+			return -1;
+		}
+
+		if( argc >= 4 )
+		{
+			userAppAddress = (uint32_t)strtol( argv[3], NULL, 0 );
+		}
+	
+		inFilename = argv[1];
+		outFilename = argv[2];
 	}
 
-	const char* inFilename = argv[1];
 	FILE* infp = fopen( inFilename, "rb" );
 	if( !infp )
 	{
-		printf( "ERROR: unable to open file <%s> for reading\n", argv[1] );
+		printf( "ERROR: unable to open file <%s> for reading\n", inFilename );
 		return -1;
 	}
 
@@ -742,11 +766,10 @@ int main( int argc, char* argv[] )
 	/* start the DFU CRC32 calculation */
 	dfu_crc32 = crc32_calc(0xFFFFFFFF, binary, max_offset);
 
-	const char* outFileame = argv[2];
-	FILE* dfufp = fopen( outFileame, "wb" );
+	FILE* dfufp = fopen( outFilename, "wb" );
 	if( !dfufp )
 	{
-		printf( "ERROR: unable to open file <%s> for writing\n", outFileame );
+		printf( "ERROR: unable to open file <%s> for writing\n", outFilename );
 		return -1;
 	}
 
@@ -787,7 +810,7 @@ int main( int argc, char* argv[] )
 	fclose(dfufp);
 
 
-	printf( "DONE: Successfully written '%s' for DFU update\n", outFileame );
+	printf( "DONE: Successfully written '%s' for DFU update\n", outFilename );
 
 	return 0;
 }
