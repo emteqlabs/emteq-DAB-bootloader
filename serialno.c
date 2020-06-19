@@ -4,22 +4,16 @@
 /** Convert a binary 0-63 to base-64 UTF16 character + Padding character at 64 '='
 * @todo Optimise for size!
 */
-static uint16_t bin64ToBase64Utf16( uint8_t bin64 )
+static inline uint16_t bin64ToBase64Utf16( uint8_t bin64 )
 {
 	static const uint8_t cBase64Table[66] =
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 	return cBase64Table[bin64];
 }
 
-static uint16_t encodeBase64Size( const uint16_t binaryBufferLength, bool padding )
+static uint16_t encodeBase64Utf16( uint16_t* const encodedBuffer, const uint16_t encodedBufferSize, const uint8_t* const binaryBuffer, const uint16_t binaryBufferLength )
 {
-	const uint16_t unpadded = (4 * binaryBufferLength) / 3;//< 3-byte blocks to 4-byte
-	return padding ? unpadded : (unpadded + 3) & ~3;
-}
-
-static uint16_t encodeBase64Utf16( uint16_t* const encodedBuffer, const uint16_t encodedBufferSize, const uint8_t* const binaryBuffer, const uint16_t binaryBufferLength, const bool padding )
-{
-	const uint16_t outputLength = encodeBase64Size( binaryBufferLength, padding );
+	const uint16_t outputLength = (4 * binaryBufferLength) / 3; //< Unpadded size 6-bits per character
 	if( outputLength < binaryBufferLength )
 		return 0;
 
@@ -41,14 +35,12 @@ static uint16_t encodeBase64Utf16( uint16_t* const encodedBuffer, const uint16_t
 		if( inEnd - inCursor == 1 )
 		{
 			*outCursor++ = bin64ToBase64Utf16((inCursor[0] & 0x03) << 4);
-			if( padding ) *outCursor++ = bin64ToBase64Utf16(64);
 		}
 		else
 		{
 			*outCursor++ = bin64ToBase64Utf16(((inCursor[0] & 0x03) << 4) | (inCursor[1] >> 4));
 			*outCursor++ = bin64ToBase64Utf16((inCursor[1] & 0x0F) << 2);
 		}
-		if( padding ) *outCursor++ = bin64ToBase64Utf16( 64 );
 	}
 
 	return outCursor - encodedBuffer;
@@ -66,7 +58,7 @@ bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferL
         , *(uint32_t*)0x00806014, *(uint32_t*)0x00806018
     };
 
-	encodeBase64Utf16( buffer, bufferLength, (const uint8_t*)serialNumber, MIN( bufferLength, (uint16_t)sizeof(serialNumber) ), false );
+	encodeBase64Utf16( buffer, bufferLength, (const uint8_t*)serialNumber, MIN( bufferLength, (uint16_t)sizeof(serialNumber) ) );
 #else
 #error "Not implemented"
 #endif
