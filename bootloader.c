@@ -949,7 +949,7 @@ void bootloader( void )
     resetMagic = 0;
 #endif
 
-    if( true || enterDfu )
+    if( enterDfu )
     {
         dfuStarted();
 
