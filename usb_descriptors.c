@@ -165,7 +165,7 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
 
 #define STR_MANUFACTURER u"Emteq"
 #define STR_PRODUCT u"DAB"
-#define STR_SERIAL u"ToDo:12345678901234567" ///< 16 chars
+#define STR_SERIAL u"DABver-1234567890123456789\0\0\0\0\0" ///< 32 chars should be more than sufficient
 #define STR_DFU_App u"DAB-App"
 #define STR_DFU_CalibrationData u"DAB-Calibration"
 #define STR_DFU_HardwareData u"DAB-HardwareData"
