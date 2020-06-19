@@ -44,6 +44,7 @@
 #include "usb.h"
 #include "nvm_data.h"
 #include "usb_descriptors.h"
+#include "serialno.h"
 
 /*- Definitions -------------------------------------------------------------*/
 #define USE_DBL_TAP /* comment out to use GPIO input for bootloader entry */
@@ -951,6 +952,9 @@ void bootloader( void )
 
     if( enterDfu )
     {
+        usb_string_descriptor_t* serialDescriptor = getStringDescriptor( USB_STR_SERIAL_NUMBER );
+        readSerialNumberBase64Utf16( serialDescriptor->bString, serialDescriptor->bLength - sizeof( *serialDescriptor ) );
+
         dfuStarted();
 
 #ifdef __SAMD51__

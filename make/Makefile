@@ -76,7 +76,8 @@ INCLUDES += \
 SOURCE_DIR=..
 SOURCES += \
   ../bootloader.c \
-  ../usb_descriptors.c 
+  ../usb_descriptors.c  \
+  ../serialno.c 
 ASOURCES += \
   ../startup.s
 
