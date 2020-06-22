@@ -79,12 +79,6 @@ bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferL
 	cursor += encodeBase64Utf16( cursor, cursorEnd - cursor, (const uint8_t*)hardwareVersion, (uint16_t)sizeof( hardwareVersion ) );
 #endif
 
-	// Add delimiter
-	if( cursor + 1 < cursorEnd )
-	{
-		*cursor++ = '-';
-	}
-
     /** @see http://ww1.microchip.com/downloads/en/DeviceDoc/60001507E.pdf
     * Chapter: 9.6 Serial Number
     * Page: 60
