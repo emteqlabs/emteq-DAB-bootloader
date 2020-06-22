@@ -2,44 +2,29 @@
 #include "utils.h"
 
 /** Convert a binary 0-63 to base-64 UTF16 character + Padding character at 64 '='
-* @todo Optimise for size!
+* @note RFC 4648 base64 (standard)
 */
-static uint16_t bin64ToBase64Utf16( uint8_t bin64 )
+static uint16_t bin64ToBase64Utf16( const uint8_t bin64 )
 {
 #if 0
 	static const uint8_t cBase64Table[66] =
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 	return cBase64Table[bin64];
-
-#else //< 8-bytes smaller
-	typedef struct
-	{
-		uint8_t base;
-		uint8_t length;
-	} CharRange;
-
-	static const CharRange base64CharRanges[] = {
-		  {'A', 26 }
-		, {'a', 26 }
-		, {'0', 10 }
-		, {'+', 1 }
-		, {'/', 1 }
-		//, {0, 0xFF } ///< Not possible to be >64!?
-	};
-
-	const CharRange* range;
-	for( range = base64CharRanges; bin64 >= range->length; bin64 -= (range++)->length )
-	{
-		/* Do nothing */
-	}
-	return range->base + bin64;
+#else //< 20bytes smaller!
+	const uint8_t twentySix = 26U;
+	if( bin64 < (twentySix) )  return 'A' + bin64;
+	else if( bin64 < (twentySix * 2) )  return ('a' - twentySix) + bin64;
+	else if( bin64 < ((twentySix * 2) + 10) )  return ('0' - (twentySix*2)) + bin64;
+	else if( bin64 == 62) return '+';
+	else if( bin64 == 63 ) return '/';
+	return '='; ///< @note no overrun checks i.e. >= 64 returns '='
 #endif
 }
 
 static uint16_t encodeBase64Utf16( uint16_t* const encodedBuffer, const uint16_t encodedBufferSize, const uint8_t* const binaryBuffer, const uint16_t binaryBufferLength )
 {
-	const uint16_t outputLength = (4 * binaryBufferLength) / 3; //< Unpadded size 6-bits per character
-	if( outputLength >= encodedBufferSize )
+	const uint16_t outputLength = (4 * binaryBufferLength + 2) / 3; //< Unpadded size 6-bits per character
+	if( outputLength > encodedBufferSize )
 		return 0;
 
 	const uint8_t* const inEnd = binaryBuffer + binaryBufferLength;
