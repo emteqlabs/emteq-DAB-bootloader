@@ -106,6 +106,25 @@ extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defin
 extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
 extern char __stack_start__[], __stack_end__[]; ///< @note Defined in .ld linker
 
+typedef struct
+{
+    uint32_t origin;
+    uint32_t length;
+} PartitionAddress;
+
+static const PartitionAddress partition[USB_ALTERNATESETTING_COUNT] =
+{
+     [USB_ALTERNATESETTING_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH }
+   , [USB_ALTERNATESETTING_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH }
+   , [USB_ALTERNATESETTING_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH }
+   , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH }
+};
+
+static uint8_t usb_status[2] = { 0, 0 };
+static uint8_t usb_config = 0;
+static uint8_t usb_alternateSetting = USB_ALTERNATESETTING_App; //, Sets the partition in DFU mode
+static uint16_t dfu_writeBlockIndex = 0;
+static uint16_t dfu_writeSize = 0;
 
 static void nvmctrl_wait_ready()
 {
@@ -121,7 +140,7 @@ static void nvmctrl_wait_ready()
 /*Before erasing the NVM User Page, ensure that the first 32 Bytes are read to a buffer and later written back
 * to the same area unless a configuration change is intended
 */
-void nvmctrl_erase_userpage()
+static void nvmctrl_erase_userpage()
 {
     uint8_t userPageReservedBuffer[sizeof( userPageReserved )];
 
@@ -187,11 +206,81 @@ static void nvmctrl_erase_block( uint32_t dst )
 #endif
 
 
-typedef bool (*fnNvmCtrlPreWrite)(const uint32_t nvm_addr, const uint32_t nvm_writeLength );
+static bool checkCrcRegion( const uint32_t address, const uint32_t length )
+{
+#if __SAMD11__ 
+    PAC1->WPCLR.reg = 2; /* clear DSU */
+#elif __SAMD51__
+    PAC->WRCTRL.reg = PAC_WRCTRL_PERID( ID_DSU ) | PAC_WRCTRL_KEY_CLR;
+#else
+#error "Unsupported processor class"
+#endif
+
+    /// @todo CRC calculate during flashing operation as async task
+    DSU->ADDR.reg = address;
+    DSU->LENGTH.reg = length; /* use length encoded into unused vector address in user app */
+
+    /* ask DSU to compute CRC */
+    DSU->STATUSA.bit.DONE = true;
+    DSU->DATA.reg = 0xFFFFFFFF;
+    DSU->CTRL.bit.CRC = 1;
+    while( !DSU->STATUSA.bit.DONE );
+
+    const uint32_t dsuCrcData = DSU->DATA.reg;
+
+    return dsuCrcData == 0 && !(DSU->STATUSA.bit.PERR || DSU->STATUSA.bit.BERR);
+}
+
+static bool nvmctrl_usePage_valid()
+{
+    /// @todo There doesn't seem any benefit of CRC on the calibration data at present?
+    return true;
+}
+
+static bool nvmctrl_userImage_valid()
+{
+    static volatile uint32_t* userAppStackPointer = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppStackVectorOffset);
+    static volatile uint32_t* userAppResetVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppResetVectorOffset);
+    static volatile uint32_t* userAppCrcVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppCrcEmbedOffset);
+    static volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppLengthEmbedOffset);
+
+    /// Check on the Stack-pointer address points somewhere in the RAM
+    const uint32_t currentUserAppStackPointer = *userAppStackPointer;
+    if( (currentUserAppStackPointer <= (uint32_t)__stack_start__)
+        || (currentUserAppStackPointer > (uint32_t)__stack_end__) )
+    {
+        return false;
+    }
+
+    /// Check on the Reset_Handler address needs to point inside the Flash region for user-app
+    const uint32_t currentUserAppResetVector = *userAppResetVector;
+    if( (currentUserAppResetVector < partition[USB_ALTERNATESETTING_App].origin)
+        || (currentUserAppResetVector >= partition[USB_ALTERNATESETTING_App].origin + partition[USB_ALTERNATESETTING_App].length) )
+    {
+        return false;
+    }
+
+    // If we don't use CRC then assume it must e correct!
+    if( !userAppCrcEmbed )
+        return true;
+
+    //If user-app CRC is 0 then we assume invalid image
+    const uint32_t userAppCrc = *userAppCrcVector;
+    if( userAppCrc == 0 )
+        return false;
+
+    //If user-app is 0 bytes or extends past end of available flash then it must be invalid
+    const uint32_t userAppLength = *userAppLengthVector;
+    if( (userAppLength == 0)
+        || (userAppLength > partition[USB_ALTERNATESETTING_App].length) )
+        return false;
+
+    return checkCrcRegion( partition[USB_ALTERNATESETTING_App].origin, userAppLength );
+}
 
 /** When writing the user-page the first 32-bytes are reserved by Samd specification.
 */
-bool nvmctrl_userpage_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+static bool nvmctrl_userpage_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
 {
     (void)nvm_writeLength; //< unused
 
@@ -206,7 +295,7 @@ bool nvmctrl_userpage_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writ
     return true;
 }
 
-bool nvmctrl_bootloader_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+static bool nvmctrl_bootloader_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
 {
     (void)nvm_addr; //< unused
     (void)nvm_writeLength; //< unused
@@ -215,7 +304,13 @@ bool nvmctrl_bootloader_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_wr
     return false;
 }
 
-bool nvmctrl_main_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+static bool nvmctrl_bootloader_valid()
+{
+    /// @todo Any sort of bootloader verification!
+    return true;
+}
+
+static bool nvmctrl_main_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
 {
     (void)nvm_writeLength; //< unused
 
@@ -245,33 +340,28 @@ bool nvmctrl_main_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLen
 
     return true;
 }
-typedef struct 
+
+/** Checks prior to writing a block to a parition
+*/
+typedef bool (*fnNvmCtrlPreWrite)(const uint32_t nvm_addr, const uint32_t nvm_writeLength);
+
+/** Validate image on completion
+*/
+typedef bool (*fnNvmCtrlPostComplete)();
+
+typedef struct
 {
-    uint32_t origin;
-    uint32_t length;
     fnNvmCtrlPreWrite preWrite;
-} Partition;
+    fnNvmCtrlPostComplete postComplete;
+} PartitionFuncs;
 
-static const Partition partition[USB_ALTERNATESETTING_COUNT] =
+static const PartitionFuncs partitionFunct[USB_ALTERNATESETTING_COUNT] =
 {
-     [USB_ALTERNATESETTING_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH, nvmctrl_main_PreWrite }
-   , [USB_ALTERNATESETTING_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH, nvmctrl_bootloader_PreWrite }
-   , [USB_ALTERNATESETTING_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH, nvmctrl_bootloader_PreWrite }
-   , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH, nvmctrl_userpage_PreWrite }
+     [USB_ALTERNATESETTING_App] = { nvmctrl_main_PreWrite, nvmctrl_userImage_valid }
+   , [USB_ALTERNATESETTING_Bootloader] = { nvmctrl_bootloader_PreWrite, nvmctrl_bootloader_valid }
+   , [USB_ALTERNATESETTING_HardwareData] = { nvmctrl_bootloader_PreWrite, nvmctrl_bootloader_valid }
+   , [USB_ALTERNATESETTING_CalibrationData] = { nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid }
 };
-
-static volatile uint32_t* userAppStackPointer = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppStackVectorOffset);
-static volatile uint32_t* userAppResetVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppResetVectorOffset);
-static volatile uint32_t* userAppCrcVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppCrcEmbedOffset);
-static volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppLengthEmbedOffset);
-
-static uint8_t usb_status[2] = { 0, 0 };
-static uint8_t usb_config = 0;
-static uint8_t usb_alternateSetting = USB_ALTERNATESETTING_App; //, Sets the partition in DFU mode
-static uint16_t dfu_writeBlockIndex = 0;
-static uint16_t dfu_writeSize = 0;
-
-/*- Implementations ---------------------------------------------------------*/
 
 /// red LED
 static void bootloaderStarted()
@@ -347,7 +437,12 @@ static void dfuDownloadToNvm()
     // Make sure we don't write past the end of the partition
     const uint32_t nvm_writeLength = MIN( MIN( dfu_writeSize, sizeof( udc_ctrl_out_buf )), partition[usb_alternateSetting].length - (dfu_writeBlockIndex * dfu_blockSize) );
 
-    partition[usb_alternateSetting].preWrite( nvm_addr, nvm_writeLength );
+    if( !partitionFunct[usb_alternateSetting].preWrite( nvm_addr, nvm_writeLength ) )
+    {
+        /// @todo Better failure method?
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+        return;
+    }
 
     typedef uint32_t NvmWord;
     ///@todo assert( nvm_writeLength % sizeof( NvmWord ) == 0 );// Can only write multiples of 32bit
@@ -357,67 +452,6 @@ static void dfuDownloadToNvm()
         *nvm_writeCursor++ = *ram_readCursor++;
 
     nvmctrl_wait_ready();
-}
-
-static bool checkCrcRegion( const uint32_t address, const uint32_t length )
-{
-#if __SAMD11__ 
-    PAC1->WPCLR.reg = 2; /* clear DSU */
-#elif __SAMD51__
-    PAC->WRCTRL.reg = PAC_WRCTRL_PERID( ID_DSU ) | PAC_WRCTRL_KEY_CLR;
-#else
-#error "Unsupported processor class"
-#endif
-
-    /// @todo CRC calculate during flashing operation as async task
-    DSU->ADDR.reg = address;
-    DSU->LENGTH.reg = length; /* use length encoded into unused vector address in user app */
-
-    /* ask DSU to compute CRC */
-    DSU->STATUSA.bit.DONE = true;
-    DSU->DATA.reg = 0xFFFFFFFF;
-    DSU->CTRL.bit.CRC = 1;
-    while( !DSU->STATUSA.bit.DONE );
-
-    const uint32_t dsuCrcData = DSU->DATA.reg;
-
-    return dsuCrcData == 0 && !(DSU->STATUSA.bit.PERR || DSU->STATUSA.bit.BERR);
-}
-
-static bool userImageValid()
-{
-    /// Check on the Stack-pointer address points somewhere in the RAM
-    const uint32_t currentUserAppStackPointer = *userAppStackPointer;
-    if( (currentUserAppStackPointer <= (uint32_t)__stack_start__)
-        || (currentUserAppStackPointer > (uint32_t)__stack_end__ ) )
-    {
-        return false;
-    }
-
-    /// Check on the Reset_Handler address needs to point inside the Flash region for user-app
-    const uint32_t currentUserAppResetVector = *userAppResetVector;
-    if( (currentUserAppResetVector < partition[USB_ALTERNATESETTING_App].origin)
-        || (currentUserAppResetVector >= partition[USB_ALTERNATESETTING_App].origin + partition[usb_alternateSetting].length) )
-    {
-        return false;
-    }
-
-    // If we don't use CRC then assume it must e correct!
-    if( !userAppCrcEmbed )
-        return true;
-
-    //If user-app CRC is 0 then we assume invalid image
-    const uint32_t userAppCrc = *userAppCrcVector;
-    if( userAppCrc == 0 )
-        return false;
-
-    //If user-app is 0 bytes or extends past end of available flash then it must be invalid
-    const uint32_t userAppLength = *userAppLengthVector;
-    if( (userAppLength == 0)
-        || (userAppLength > partition[usb_alternateSetting].length) )
-        return false;
-
-    return checkCrcRegion( partition[USB_ALTERNATESETTING_App].origin, userAppLength );
 }
 
 static bool USB_Service()
@@ -500,7 +534,7 @@ static bool USB_Service()
             break;
         case dfuMANIFEST:
             {
-                if( userImageValid() )
+                if( partitionFunct[usb_alternateSetting].postComplete() )
                 {
                     dfu_status.bState = dfuMANIFEST_WAIT_RESET;
                     dfu_status.bStatus = OK;
@@ -526,6 +560,7 @@ static bool USB_Service()
     const uint8_t index = request->wValue & 0xff;
     const uint16_t length = request->wLength;
 
+#if 0
     // handle Microsoft thing
     if (USB_CMD(IN, DEVICE, VENDOR) == request->bmRequestType) {
       // 0x20, since we put a whitespace (=0x20) after "MSFT100" String.
@@ -536,12 +571,13 @@ static bool USB_Service()
       }
       return true;
     }
+#endif
 
     //http://www.usbmadesimple.co.uk/ums_4.htm
     /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
     switch( request->bmRequestType & 0x7F )
     {
-#if 0
+#if 1
         case SIMPLE_USB_CMD( DEVICE, VENDOR ):
             {
                 switch( request->bRequest )
@@ -837,6 +873,7 @@ static bool hasResetBootloaderMagic()
 
 static void doubleTapResetDelay()
 {
+    // @todo Perform a non-blocking reset timer i.e. Watchdog or interrupt etc. so we get a faster boot during normal operation
     /* postpone boot for a short period of time; if a second reset happens during this window, the "magic" value will remain */
     resetMagic = ResetMagic_Bootloader;
     /// @Note Default iOS double tap is .25 seconds so we use this here based on processor frequency
@@ -942,7 +979,7 @@ void bootloader( void )
     configureClock();
 
     // Check entry to DFU 
-    const bool enterDfu = (!userImageValid()
+    const bool enterDfu = (!partitionFunct[USB_ALTERNATESETTING_App].postComplete()
         || hasBootloaderResetMagic());
 
 #ifdef USE_DBL_TAP
@@ -959,7 +996,7 @@ void bootloader( void )
 
 #ifdef __SAMD51__
         // Disable NVM caches, per errata.
-        // @WARNING DSU requirs cache to be enabled for CRC calculations
+        // @WARNING DSU requires cache to be enabled for CRC calculations
        // NVMCTRL->CTRLA.bit.CACHEDIS0 = true;
        // NVMCTRL->CTRLA.bit.CACHEDIS1 = true;
 

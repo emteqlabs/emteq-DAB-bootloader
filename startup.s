@@ -74,7 +74,7 @@ zero_loop:
 
   /* if bootloader returns, we proceed to the user app */
 
-  ldr r1, = __origin_APP_FLASH /* origin of user app @todo Configure based on platform/variant etc*/ 
+  ldr r1, = __origin_APP_FLASH /* origin of user app */ 
   ldr r0, =0xE000ED08 /* VTOR register */
   str r1, [r0] /* point VTOR to user app */
   ldr r0, [r1] /* load stack pointer from user app */
