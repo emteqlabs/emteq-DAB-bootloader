@@ -206,6 +206,26 @@ typedef struct PACK
     USB_MicrosoftCompatibleDescriptor_Interface interfaces[];
 } usb_microsoft_compat_descriptor_t;
 
+typedef struct PACK
+{
+    uint32_t dwSize;
+    uint32_t dwPropertyDataType;
+    uint16_t  wPropertyNameLength;
+    uint16_t  bPropertyName[20];
+    uint32_t dwPropertyDataLength;
+    uint16_t  bPropertyData[39];
+} USB_MicrosoftCustomProperty_Section;
+
+typedef struct PACK
+{
+    // Header
+    uint32_t dwLength;
+    uint16_t bcdVersion;
+    uint16_t wIndex;
+    uint16_t wCount;
+    USB_MicrosoftCustomProperty_Section sections[];
+} usb_microsoft_extended_properties_t;
+
 /*- Prototypes --------------------------------------------------------------*/
 
 #endif // _USB_H_

@@ -41,8 +41,8 @@ usb_device_descriptor_t usb_device_descriptor __attribute__( (aligned( 4 )) ) = 
   .bDescriptorType = USB_DEVICE_DESCRIPTOR,
 
   .bcdUSB = 0x0200,
-  .bDeviceClass = 254,
-  .bDeviceSubClass = 1, /* DFU */
+  .bDeviceClass = 0,
+  .bDeviceSubClass = 0,
   .bDeviceProtocol = 0,
 
   .bMaxPacketSize0 = 64,
@@ -72,13 +72,31 @@ usb_microsoft_compat_descriptor_t usb_wcid_microsoft __attribute__( (aligned( 4 
   .interfaces = {
     {
       .bFirstInterfaceNumber = 0,
-      .reserved1 = 0,
+      .reserved1 = 0x01,
       .compatibleID = "WINUSB\0\0",
       .subCompatibleID = {0, 0, 0, 0, 0, 0, 0, 0},
       .reserved2 = {0, 0, 0, 0, 0, 0},
     }
   }
 };
+
+usb_microsoft_extended_properties_t usb_wcid_extended_properties =
+{ 
+    .dwLength = sizeof(usb_microsoft_extended_properties_t) + sizeof(USB_MicrosoftCustomProperty_Section),
+    .bcdVersion = 0x0100,
+    .wIndex = 0x0005,
+    .wCount = 0x0001,
+    .sections = {
+        {
+            .dwSize = sizeof(USB_MicrosoftCustomProperty_Section),
+            .dwPropertyDataType = 0x00000001,
+            .wPropertyNameLength = sizeof(((USB_MicrosoftCustomProperty_Section*)0)->bPropertyName),
+            .bPropertyName = u"DeviceInterfaceGUID\0",
+            .dwPropertyDataLength = sizeof( ((USB_MicrosoftCustomProperty_Section*)0)->bPropertyData ),
+            .bPropertyData = u"{3b9e82dd-cd7b-4133-bf88-4c65d4d84e20}\0"
+        }
+    }
+ };
 
 usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligned( 4 )) ) = /* MUST BE IN RAM for USB peripheral */
 {
@@ -100,8 +118,8 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
         {
             .bLength = sizeof( usb_dfu_descriptor_t ),
             .bDescriptorType = 33,
-            .bmAttributes = (USB_DFU_ATTR_CAN_DNLOAD | USB_DFU_ATTR_CAN_UPLOAD | USB_DFU_ATTR_WILL_DETACH),
-            .wDetachTimeout = 0,
+            .bmAttributes = (USB_DFU_ATTR_CAN_DNLOAD /* | USB_DFU_ATTR_CAN_UPLOAD*/ | USB_DFU_ATTR_WILL_DETACH | USB_DFU_ATTR_MANIFESTATION_TOLERANT),
+            .wDetachTimeout = 500,
             .wTransferSize = dfu_blockSize,
             .bcdDFU = 0x101,
         },
@@ -129,9 +147,9 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bInterfaceNumber = 0,
             .bAlternateSetting = USB_ALTERNATESETTING_Bootloader,
             .bNumEndpoints = 0,
-            .bInterfaceClass = 254,
-            .bInterfaceSubClass = 1,
-            .bInterfaceProtocol = 2,
+            .bInterfaceClass = DFU_INTERFACE_CLASS,
+            .bInterfaceSubClass = DFU_INTERFACE_SUBCLASS,
+            .bInterfaceProtocol = DFU_INTERFACE_PROTOCOL,
             .iInterface = USB_STR_DFU_Bootloader,
         },
         .dfuHardwareData =
@@ -141,9 +159,9 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bInterfaceNumber = 0,
             .bAlternateSetting = USB_ALTERNATESETTING_HardwareData,
             .bNumEndpoints = 0,
-            .bInterfaceClass = 254,
-            .bInterfaceSubClass = 1,
-            .bInterfaceProtocol = 2,
+            .bInterfaceClass = DFU_INTERFACE_CLASS,
+            .bInterfaceSubClass = DFU_INTERFACE_SUBCLASS,
+            .bInterfaceProtocol = DFU_INTERFACE_PROTOCOL,
             .iInterface = USB_STR_DFU_HardwareData,
         },
         .dfuCalibrationData =
@@ -153,9 +171,9 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .bInterfaceNumber = 0,
             .bAlternateSetting = USB_ALTERNATESETTING_CalibrationData,
             .bNumEndpoints = 0,
-            .bInterfaceClass = 254,
-            .bInterfaceSubClass = 1,
-            .bInterfaceProtocol = 2,
+            .bInterfaceClass = DFU_INTERFACE_CLASS,
+            .bInterfaceSubClass = DFU_INTERFACE_SUBCLASS,
+            .bInterfaceProtocol = DFU_INTERFACE_PROTOCOL,
             .iInterface = USB_STR_DFU_CalibrationData,
         }
     }
@@ -164,23 +182,23 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
 #if USE_STRING_DESCRIPTORS
 
 #define STR_MANUFACTURER u"Emteq"
-#define STR_PRODUCT u"DAB"
-#define STR_SERIAL u"DABver-123456789012345678\0"
-#define STR_DFU_App u"DAB-App"
-#define STR_DFU_CalibrationData u"DAB-Calibration"
-#define STR_DFU_HardwareData u"DAB-HardwareData"
-#define STR_DFU_Bootloader u"DAB-Bootloader"
-#define STR_WCID_Microsoft u"MSFT100 "
+#define STR_PRODUCT u"EmteqDAB DFU"
+#define STR_SERIAL u"DAB\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ///< @note Pre-populated 'DAB' prefix
+#define STR_DFU_App STR_PRODUCT u"-App"
+#define STR_DFU_CalibrationData STR_PRODUCT u"-Calibration"
+#define STR_DFU_HardwareData STR_PRODUCT u"-HardwareData"
+#define STR_DFU_Bootloader STR_PRODUCT  u"-Bootloader"
+#define STR_WCID_Microsoft u"MSFT100\x20" ///< @note 'Vendor-code ' ' = 0x20
 
 usb_string_descriptor_t usb_string_descriptor_langid __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + 2, USB_STRING_DESCRIPTOR, {0x0409 /*USB_LANGUAGE_EN_US*/} };
-usb_string_descriptor_t usb_string_descriptor_manufacturer __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_MANUFACTURER ), USB_STRING_DESCRIPTOR, STR_MANUFACTURER };
-usb_string_descriptor_t usb_string_descriptor_product __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_PRODUCT ), USB_STRING_DESCRIPTOR, STR_PRODUCT };
-usb_string_descriptor_t usb_string_descriptor_serial __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_SERIAL ), USB_STRING_DESCRIPTOR, STR_SERIAL };
-usb_string_descriptor_t usb_string_descriptor_dfu_app __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_App ), USB_STRING_DESCRIPTOR, STR_DFU_App };
-usb_string_descriptor_t usb_string_descriptor_dfu_calibrationData __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_CalibrationData ), USB_STRING_DESCRIPTOR, STR_DFU_CalibrationData };
-usb_string_descriptor_t usb_string_descriptor_dfu_bootloader __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_Bootloader ), USB_STRING_DESCRIPTOR, STR_DFU_Bootloader };
-usb_string_descriptor_t usb_string_descriptor_dfu_hardwareData __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_HardwareData ), USB_STRING_DESCRIPTOR, STR_DFU_HardwareData };
-usb_string_descriptor_t usb_string_descriptor_wcid_microsoft __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_WCID_Microsoft ), USB_STRING_DESCRIPTOR, STR_WCID_Microsoft };
+usb_string_descriptor_t usb_string_descriptor_manufacturer __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_MANUFACTURER ) - 2, USB_STRING_DESCRIPTOR, STR_MANUFACTURER };
+usb_string_descriptor_t usb_string_descriptor_product __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_PRODUCT ) - 2, USB_STRING_DESCRIPTOR, STR_PRODUCT };
+usb_string_descriptor_t usb_string_descriptor_serial __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_SERIAL ) - 2, USB_STRING_DESCRIPTOR, STR_SERIAL };
+usb_string_descriptor_t usb_string_descriptor_dfu_app __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_App ) - 2, USB_STRING_DESCRIPTOR, STR_DFU_App };
+usb_string_descriptor_t usb_string_descriptor_dfu_calibrationData __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_CalibrationData ) - 2, USB_STRING_DESCRIPTOR, STR_DFU_CalibrationData };
+usb_string_descriptor_t usb_string_descriptor_dfu_bootloader __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_Bootloader ) - 2, USB_STRING_DESCRIPTOR, STR_DFU_Bootloader };
+usb_string_descriptor_t usb_string_descriptor_dfu_hardwareData __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_DFU_HardwareData ) - 2, USB_STRING_DESCRIPTOR, STR_DFU_HardwareData };
+usb_string_descriptor_t usb_string_descriptor_wcid_microsoft __attribute__( (aligned( 4 )) ) = { sizeof( usb_string_descriptor_t ) + sizeof( STR_WCID_Microsoft ) - 2, USB_STRING_DESCRIPTOR, STR_WCID_Microsoft };
 
 
 usb_string_descriptor_t* getStringDescriptor( const uint8_t index )

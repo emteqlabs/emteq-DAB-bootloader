@@ -57,20 +57,12 @@ static uint16_t encodeBase64Utf16( uint16_t* const encodedBuffer, const uint16_t
 	return outCursor - encodedBuffer;
 }
 
-bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferLength )
+uint16_t readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferLength )
 {
 #if __SAMD51__
 
 	uint16_t* cursor = buffer;
 	uint16_t* const cursorEnd = buffer + bufferLength;
-
-	// Add prefix
-	if( cursor + 3 < cursorEnd )
-	{
-		*cursor++ = 'D';
-		*cursor++ = 'A';
-		*cursor++ = 'B';
-	}
 
 #if 0 //< HW version in serial or not?
 	const uint8_t hardwareVersion[3] = {
@@ -92,5 +84,5 @@ bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferL
 #else
 #error "Not implemented"
 #endif
-	return true;
+	return cursor - buffer;
 }

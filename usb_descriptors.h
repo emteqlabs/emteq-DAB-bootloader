@@ -99,6 +99,7 @@ typedef struct PACK
 extern usb_device_descriptor_t usb_device_descriptor;
 extern usb_configuration_hierarchy_t usb_configuration_hierarchy;
 extern usb_microsoft_compat_descriptor_t usb_wcid_microsoft;
+extern usb_microsoft_extended_properties_t usb_wcid_extended_properties;
 
 #if USE_STRING_DESCRIPTORS
 usb_string_descriptor_t* getStringDescriptor(const  uint8_t index);

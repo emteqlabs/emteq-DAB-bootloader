@@ -4,6 +4,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-bool readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferLength );
+uint16_t readSerialNumberBase64Utf16( uint16_t* const buffer, const uint16_t bufferLength );
 
 #endif

@@ -560,35 +560,38 @@ static bool USB_Service()
     const uint8_t index = request->wValue & 0xff;
     const uint16_t length = request->wLength;
 
-#if 0
-    // handle Microsoft thing
-    if (USB_CMD(IN, DEVICE, VENDOR) == request->bmRequestType) {
-      // 0x20, since we put a whitespace (=0x20) after "MSFT100" String.
-      if ((request->bRequest == 0x20) && (request->wIndex == 0x0004)) {
-        udc_control_send(  (const uint8_t*)&usb_wcid_microsoft, MIN(usb_wcid_microsoft.dwLength, length));
-      } else {
-        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
-      }
-      return true;
-    }
-#endif
-
     //http://www.usbmadesimple.co.uk/ums_4.htm
     /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
     switch( request->bmRequestType & 0x7F )
     {
 #if 1
         case SIMPLE_USB_CMD( DEVICE, VENDOR ):
+        case SIMPLE_USB_CMD( INTERFACE, VENDOR ):
             {
                 switch( request->bRequest )
                 {
-                    case 0x20: //< @todo CHeck the WCID spec accordingly!?
-                        if( request->wIndex == 0x0004 )
+                    case ' ': ///< @note Vendor-code postfix for STR_WCID_Microsoft is ' ' = 0x20
                         {
-                            udc_control_send( (const uint8_t*)&usb_wcid_microsoft, MIN(usb_wcid_microsoft.dwLength, length) );
+                            enum
+                            {
+                                OS_FEATURE_EXT_COMPAT_ID = 4,
+                                OS_FEATURE_EXT_PROPERTIES = 5,
+                            };
+
+                            if( request->wIndex == OS_FEATURE_EXT_COMPAT_ID )
+                            {
+                                udc_control_send( (const uint8_t*)&usb_wcid_microsoft, MIN( usb_wcid_microsoft.dwLength, length ) );
+                            }
+                            else
+                            if( request->wIndex == OS_FEATURE_EXT_PROPERTIES )
+                            {
+                                udc_control_send( (const uint8_t*)&usb_wcid_extended_properties, MIN( usb_wcid_extended_properties.dwLength, length ) );
+                            }
+                            else
+                            {
+                                USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+                            }
                         }
-                        else
-                            USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
                         break;
 
                     default:
@@ -989,8 +992,11 @@ void bootloader( void )
 
     if( enterDfu )
     {
+        /// @todo Duplication between DFU bootloader and firmware!
         usb_string_descriptor_t* serialDescriptor = getStringDescriptor( USB_STR_SERIAL_NUMBER );
-        readSerialNumberBase64Utf16( serialDescriptor->bString, (serialDescriptor->bLength - sizeof( *serialDescriptor )) / sizeof(serialDescriptor->bString[0]) );
+        const uint8_t cPrefixLength = 3;
+        const uint8_t cDescPrefixBytes = 2 + sizeof( serialDescriptor->bString[0] ) * cPrefixLength;
+        serialDescriptor->bLength = cDescPrefixBytes + sizeof(serialDescriptor->bString[0]) * readSerialNumberBase64Utf16( serialDescriptor->bString + cPrefixLength, (serialDescriptor->bLength - sizeof(usb_string_descriptor_t)) / sizeof(serialDescriptor->bString[0]) - cPrefixLength );
 
         dfuStarted();
 
