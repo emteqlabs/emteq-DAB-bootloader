@@ -82,7 +82,7 @@ ASOURCES += \
   ../startup.s
 
 VERSION_FILE=$(SOURCE_DIR)/Version.generated.h
-VERSION_TAG=$(shell git -C $(SOURCE_DIR) --no-pager describe --tags --always --dirty)
+VERSION_TAG=$(shell git -C $(SOURCE_DIR) --no-pager describe --tags --always --dirty --long)
 
 DEFINES += \
   -DDONT_USE_CMSIS_INIT \
