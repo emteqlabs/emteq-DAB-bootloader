@@ -35,7 +35,7 @@ Process
         # Ensure the repo hooks are setup so this script is called after every commit
         git config core.hooksPath .githooks
 
-        $buildTag = git --no-pager describe --tags --always --dirty
+        $buildTag = git --no-pager describe --tags --always --dirty --long
         '"' + $buildTag + '"' | sc $filename
     }
     catch
