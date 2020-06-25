@@ -508,6 +508,7 @@ static bool USB_Service()
 
                 /// @todo Enable DFU RT mode instead of disabling/resetting USB?
                 USB->DEVICE.CTRLA.reg = USB_CTRLA_SWRST;
+                while( !USB->DEVICE.SYNCBUSY.bit.SWRST ); //< @todo TinyUsb checks ==0 then ==1, added as must be reason!
                 while( USB->DEVICE.SYNCBUSY.bit.SWRST );
             }
             return false;  //< Exit DFU
@@ -956,6 +957,7 @@ static void initializeUsb()
 #endif
 
     USB->DEVICE.CTRLA.reg = USB_CTRLA_SWRST;
+    while( !USB->DEVICE.SYNCBUSY.bit.SWRST ); //< @todo TinyUsb checks ==0 then ==1, added as must be reason!
     while( USB->DEVICE.SYNCBUSY.bit.SWRST );
 
 
