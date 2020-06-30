@@ -1048,7 +1048,7 @@ void bootloader( void )
         while( USB_Service() );
     }
 
-#if 1 ///< @todo Set protection from malicious user apps
+#if 0 ///< @todo Set protection from malicious user apps
     // Set peripheral restrictions restriction
 #if __SAMD51__
     PAC->WRCTRL.reg = PAC_WRCTRL_PERID( ID_NVMCTRL ) | PAC_WRCTRL_KEY_SET;
