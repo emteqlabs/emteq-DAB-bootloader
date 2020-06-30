@@ -75,10 +75,30 @@ const char cVersionTag[] __attribute__( (section( ".versionTag" )) ) __attribute
 #endif
 ;
 
-/** @note "9.4 NVM User Page Mapping" The first eight 32-bit words (32 Bytes) of the Non Volatile Memory (NVM) User Page contain calibration data that are
-automatically read at device power on.The remaining 480 Bytes can be used for storing custom parameters
+/** NVM User page reserved word layout
+The Eight 32 - bit words( 32 - bytes )
+1) 0 - 31
+2) 32 - 64
+3) 63 - 95
+4) 96 - 127 -- USER - Word
+5) 128 - 159
+6) 160 - 191
+7) 192 - 223 -- USER - Word
+8) 224 - 255 ++ USER - Hardware version
 */
-uint32_t userPageReserved[8] __attribute__((section( ".userPageReserved" )));
+typedef struct
+{
+    uint32_t reserved1[3];
+    uint32_t userWord1;
+    uint32_t reserved2[2];
+    uint32_t userWord2;
+    uint32_t hardwareVersion;
+} UserPageReserved;
+
+/** @note "9.4 NVM User Page Mapping" The first eight 32-bit words (32 Bytes) of the Non Volatile Memory (NVM) User Page contain calibration data that are
+automatically read at device power on.The remaining 480 Bytes can be used for storing custom parameters.
+*/
+UserPageReserved userPageReserved __attribute__( (section( ".userPageReserved" )) );
 
 /*- Types -------------------------------------------------------------------*/
 typedef struct
@@ -144,7 +164,7 @@ static void nvmctrl_erase_userpage()
 {
     uint8_t userPageReservedBuffer[sizeof( userPageReserved )];
 
-    memcpy( userPageReservedBuffer, userPageReserved, sizeof( userPageReserved ) );
+    memcpy( userPageReservedBuffer, (void*)&userPageReserved, sizeof( userPageReserved ) );
 
     // Execute "EP" Erase Page (512Bytes region to 0xFFFFF)
     nvmctrl_wait_ready();
@@ -153,7 +173,7 @@ static void nvmctrl_erase_userpage()
     nvmctrl_wait_ready();
 
     //Restore the reserved data section contents
-    memcpy( userPageReserved, userPageReservedBuffer, sizeof( userPageReserved ) );
+    memcpy( (void*)&userPageReserved, userPageReservedBuffer, sizeof( userPageReserved ) );
 
 #if 0 ///< @todo will this be necessary?
     //Commit the last quad-word in page-buffer to ensure the reserved data is commited
@@ -227,6 +247,13 @@ static bool checkCrcRegion( const uint32_t address, const uint32_t length )
     while( !DSU->STATUSA.bit.DONE );
 
     const uint32_t dsuCrcData = DSU->DATA.reg;
+
+    // Restore DSU restriction
+#if __SAMD51__
+PAC->WRCTRL.reg = PAC_WRCTRL_PERID( ID_DSU ) | PAC_WRCTRL_KEY_SET;
+#else
+#error "Unsupported processor class"
+#endif
 
     return dsuCrcData == 0 && !(DSU->STATUSA.bit.PERR || DSU->STATUSA.bit.BERR);
 }
@@ -1020,6 +1047,15 @@ void bootloader( void )
 
         while( USB_Service() );
     }
+
+#if 1 ///< @todo Set protection from malicious user apps
+    // Set peripheral restrictions restriction
+#if __SAMD51__
+    PAC->WRCTRL.reg = PAC_WRCTRL_PERID( ID_NVMCTRL ) | PAC_WRCTRL_KEY_SET;
+#else
+#error "Unsupported processor class"
+#endif
+#endif
 
     // After DFU we will start the user-app
     userAppStarted();

@@ -4,7 +4,6 @@
 #include <stdint.h> //< uint32_t
 #include <stdbool.h> //< bool, true, false
 
-
 /// @TODO This doesn't meet the recommendation from Microchip for a reset memory semaphore
 enum ResetMagic
 {
