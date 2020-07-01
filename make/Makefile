@@ -20,22 +20,18 @@ DEBUG_SUFFIX:=_d
 
 
 ifeq ($(APP),BOSSAC)
-	BOOTPROTECT_SIZE:=0x4000
+	APP_ADDRESS:=0x4000
+	BASE_ADDRESS:=$(APP_ADDRESS)
 	VARIANT:=Bossac
 else
-	BOOTPROTECT_SIZE:=0x2000
+	APP_ADDRESS:=0x2000
 	ifdef APP
+	BASE_ADDRESS:=0x2000
 		VARIANT:=App
-	else
+	else # Bootloader
+	BASE_ADDRESS:=0x0000
 		VARIANT:=Boot
 	endif
-endif
-
-ifdef APP
-	BASE_ADDRESS:=$(BOOTPROTECT_SIZE)
-else
-# Bootloader
-	BASE_ADDRESS:=0x0000
 endif
 
 VARIANT_SUFFIX=_$(VARIANT)
@@ -82,15 +78,17 @@ CFLAGS += -MD -MP -MT $(BUILD_DIR)/$(*F).o -MF $(BUILD_DIR)/$(@F).d
 LDFLAGS += -mthumb    
 LDFLAGS += -Wl,--gc-sections,--print-memory-usage,-Map=$(BUILD_DIR)memory.map
 LDFLAGS += -Wl,-z,norelro -Wl,--hash-style=gnu -Wl,--build-id=none
-LDFLAGS += -Xlinker --defsym=__FLASH_OFFSET__=$(BASE_ADDRESS)
+LDFLAGS += -Xlinker --defsym=__APP_OFFSET__=$(APP_ADDRESS)
 
 ifdef APP
-DEFINES += -DDFU_APP
-LDFLAGS += -Wl,-L../linker/,--script=app.ld
+	DEFINES += -DDFU_APP
+	LD_ROOT=app.ld
 else
-DEFINES += -DDFU_BOOT
-LDFLAGS += -Wl,-L../linker/,--script=boot.ld
+	DEFINES += -DDFU_BOOT
+	LD_ROOT=boot.ld
 endif
+
+LDFLAGS += -Wl,-L../linker/,--script=$(LD_ROOT)
 
 ifdef DEBUG
 CFLAGS += -g -Og

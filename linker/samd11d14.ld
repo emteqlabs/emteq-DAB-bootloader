@@ -131,4 +131,4 @@ SECTIONS
 
 ASSERT( __origin_CALDATA_FLASH == 0x804020, "Factory Calibration Data address moved" )
 ASSERT( ORIGIN(HWDATA_FLASH) == 0x1FC0, "Hardware Data address moved" )
-ASSERT( ORIGIN(APP_FLASH) == 0x2000, "App-Image address moved" )
+ASSERT( ORIGIN(APP_FLASH) == __APP_OFFSET__, "App-Image address moved" )

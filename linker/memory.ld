@@ -17,7 +17,10 @@ __BOOTLOADER_SIZE__ = DEFINED(__BOOTLOADER_SIZE__) ? __BOOTLOADER_SIZE__ : 6K;
 __CALDATA_SIZE__ = DEFINED(__CALDATA_SIZE__) ? __CALDATA_SIZE__ : __length_UserPage - __length_UserPageReserved;
 __HWDATA_SIZE__ = DEFINED(__HWDATA_SIZE__) ? __HWDATA_SIZE__ : 64;
 __APP_SIZE__ = DEFINED(__APP_SIZE__) ? __APP_SIZE__ : __length_FLASH - __BOOTPROTECT_SIZE__; /* Whole storage space after boot-protection */
+__APP_OFFSET__ =  DEFINED(__APP_OFFSET__) ? __APP_OFFSET__ : __BOOTPROTECT_SIZE__;
 /** @} */
+
+ASSERT( __origin_APP_FLASH >= __BOOTPROTECT_SIZE__, "App mustn't overlap with boot protection" )
 
 /** @{ RAM */
 __RESERVE_ETBSIZE__ = 0x0000; /* First 32K used by ETB trace */
@@ -35,7 +38,7 @@ MEMORY
   /* - NVM - */
   BOOT_FLASH (rx) : ORIGIN = __origin_FLASH, LENGTH = __BOOTPROTECT_SIZE__ - __HWDATA_SIZE__
   HWDATA_FLASH (rw) : ORIGIN = __BOOTPROTECT_SIZE__ - __HWDATA_SIZE__, LENGTH = __HWDATA_SIZE__
-  APP_FLASH (rw) : ORIGIN = __BOOTPROTECT_SIZE__, LENGTH = __APP_SIZE__
+  APP_FLASH (rw) : ORIGIN = __APP_OFFSET__, LENGTH = __APP_SIZE__
 
   /* - USER page - */
   USERPAGE_FLASH (rw) : ORIGIN = __origin_UserPage, LENGTH = __length_UserPage
@@ -56,3 +59,4 @@ __origin_CALDATA_FLASH = __origin_USERPAGE_FLASH + __length_UserPageReserved;
 __length_CALDATA_FLASH = __length_USERPAGE_FLASH - __length_UserPageReserved;
 
 __end_RAM = ORIGIN(RAM) + LENGTH(RAM);
+
