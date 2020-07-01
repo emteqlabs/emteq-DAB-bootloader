@@ -18,12 +18,23 @@ endif
 RELEASE_SUFFIX:=#
 DEBUG_SUFFIX:=_d
 
+BOOTPROTECT_SIZE:=0x2000
+
+ifdef APP
+	BASE_ADDRESS:=$(BOOTPROTECT_SIZE)
+	VARIANT:=_App
+else
+# Bootloader
+	BASE_ADDRESS:=0x0000
+	VARIANT:=_Boot
+endif
+
 ## BIN may be defined from make commandline i.e. make BIN=MyDfuBootloader
 ifndef BIN
 ifdef DEBUG
-	BIN = DfuBootloader$(TARGET)$(DEBUG_SUFFIX)
+	BIN = DfuBootloader$(TARGET)$(VARIANT)$(DEBUG_SUFFIX)
 else
-	BIN = DfuBootloader$(TARGET)$(RELEASE_SUFFIX)
+	BIN = DfuBootloader$(TARGET)$(VARIANT)$(RELEASE_SUFFIX)
 endif
 endif
 
@@ -35,7 +46,7 @@ endif
 
 BIN_DIR:=bin
 BUILD_ROOT:=build
-BUILD_DIR:=$(BUILD_ROOT)\$(CONFIG)\$(TARGET)
+BUILD_DIR:=$(BUILD_ROOT)\$(CONFIG)\$(TARGET)\$(VARIANT)
 
 ##############################################################################
 .PHONY: all clean size dfu
@@ -59,8 +70,16 @@ CFLAGS += -MD -MP -MT $(BUILD_DIR)/$(*F).o -MF $(BUILD_DIR)/$(@F).d
 #-nostdlib
 LDFLAGS += -mthumb    
 LDFLAGS += -Wl,--gc-sections,--print-memory-usage,-Map=$(BUILD_DIR)memory.map
-LDFLAGS += -Wl,--script=../linker/samd11d14.ld
 LDFLAGS += -Wl,-z,norelro -Wl,--hash-style=gnu -Wl,--build-id=none
+LDFLAGS += -Xlinker --defsym=__FLASH_OFFSET__=$(BASE_ADDRESS)
+
+ifdef APP
+CFLAGS += -DDFU_APP
+LDFLAGS += -Wl,-L../linker/,--script=app.ld
+else
+CFLAGS += -DDFU_BOOT
+LDFLAGS += -Wl,-L../linker/,--script=boot.ld
+endif
 
 ifdef DEBUG
 CFLAGS += -g -Og
@@ -175,8 +194,8 @@ size: $(BIN_DIR)/$(BIN).elf
 dfu: $(BIN_DIR)/$(BIN).dfu
 
 $(BIN_DIR)/$(BIN).dfu: $(BIN_DIR)/$(BIN).elf
-	@echo "Elf to DFU:"
-	@$(ELF2DFU) $^ $@ 0x0000
+	@echo "Bin2Dfu:"
+	@$(ELF2DFU) $^ $@ $(BASE_ADDRESS)
 
 clean:
 	@echo clean

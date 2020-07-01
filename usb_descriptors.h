@@ -54,11 +54,15 @@ enum
 
 typedef enum
 {
+#if DFU_BOOT 
       USB_ALTERNATESETTING_App
-    , USB_ALTERNATESETTING_Bootloader
+#elif DFU_APP
+      USB_ALTERNATESETTING_Bootloader
     , USB_ALTERNATESETTING_HardwareData
     , USB_ALTERNATESETTING_CalibrationData
-
+#else
+#error "Unknown DFU setup"
+#endif
     /// Sentinal
     , USB_ALTERNATESETTING_COUNT
 } AlternateSettings;
@@ -79,20 +83,30 @@ typedef struct PACK
 {
     usb_configuration_descriptor_t  configuration;
     usb_dfu_descriptor_t            dfu;
-    usb_interface_descriptor_t      dfuApp;
 } usb_configuration_hierarchy_standard_t;
+
+typedef struct PACK
+{
+    usb_interface_descriptor_t      dfuApp;
+} usb_configuration_hierarchy_boot_t;
 
 typedef struct PACK
 {
     usb_interface_descriptor_t      dfuBootloader;
     usb_interface_descriptor_t      dfuHardwareData;
     usb_interface_descriptor_t      dfuCalibrationData;
-} usb_configuration_hierarchy_extended_t;
+} usb_configuration_hierarchy_app_t;
 
 typedef struct PACK
 {
     usb_configuration_hierarchy_standard_t standard;
-    usb_configuration_hierarchy_extended_t extended;
+#if DFU_BOOT 
+    usb_configuration_hierarchy_boot_t boot;
+#elif DFU_APP
+    usb_configuration_hierarchy_app_t app;
+#else
+#error "Unknown DFU setup"
+#endif
 } usb_configuration_hierarchy_t;
 
 //-----------------------------------------------------------------------------

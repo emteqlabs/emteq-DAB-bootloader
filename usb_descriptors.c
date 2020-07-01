@@ -106,7 +106,7 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
         {
             .bLength = sizeof( usb_configuration_descriptor_t ),
             .bDescriptorType = USB_CONFIGURATION_DESCRIPTOR,
-            .wTotalLength = true ? sizeof( usb_configuration_hierarchy ) : sizeof( usb_configuration_hierarchy.standard ), ///< @todo Dynamic selection fo extended interfaces
+            .wTotalLength = sizeof( usb_configuration_hierarchy_t ),
             .bNumInterfaces = 1,
             .bConfigurationValue = 1,
             .iConfiguration = USB_STR_ZERO,
@@ -122,8 +122,11 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .wDetachTimeout = 500,
             .wTransferSize = dfu_blockSize,
             .bcdDFU = 0x101,
-        },
-
+        }
+    },
+#if DFU_BOOT 
+    .boot = 
+    {
         .dfuApp =
         {
             .bLength = sizeof( usb_interface_descriptor_t ),
@@ -137,7 +140,8 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .iInterface = USB_STR_DFU_App,
         }
     },
-    .extended = 
+#elif DFU_APP
+    .app =
     {
         /// @todo reduce bootloader size by removing the duplication!.. how to send without being all in memory?
         .dfuBootloader =
@@ -177,6 +181,9 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
             .iInterface = USB_STR_DFU_CalibrationData,
         }
     }
+#else
+#error "Unknown DFU setup"
+#endif
 };
 
 #if USE_STRING_DESCRIPTORS

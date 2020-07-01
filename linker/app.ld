@@ -1,0 +1,6 @@
+
+INCLUDE memory.ld
+
+REGION_ALIAS("TARGET_FLASH", APP_FLASH );
+
+INCLUDE samd11d14.ld

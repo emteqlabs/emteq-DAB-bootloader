@@ -126,26 +126,63 @@ extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defin
 extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
 extern char __stack_start__[], __stack_end__[]; ///< @note Defined in .ld linker
 
+typedef enum
+{
+    Partition_Invalid = -1
+
+    , Partition_App = 0
+    , Partition_Bootloader
+    , Partition_HardwareData
+    , Partition_CalibrationData
+
+    /// Sentinal
+    , Partition_COUNT
+} PartitionId;
+
 typedef struct
 {
     uint32_t origin;
     uint32_t length;
 } PartitionAddress;
 
-static const PartitionAddress partition[USB_ALTERNATESETTING_COUNT] =
+static const PartitionAddress partition[Partition_COUNT] =
 {
-     [USB_ALTERNATESETTING_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH }
-   , [USB_ALTERNATESETTING_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH }
-   , [USB_ALTERNATESETTING_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH }
-   , [USB_ALTERNATESETTING_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH }
+     [Partition_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH }
+   , [Partition_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH }
+   , [Partition_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH }
+   , [Partition_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH }
 };
+
 
 static uint8_t usb_status[2] = { 0, 0 };
 static uint8_t usb_config = 0;
-static uint8_t usb_alternateSetting = USB_ALTERNATESETTING_App; //, Sets the partition in DFU mode
+static int8_t dfu_partition = -1; //, Sets the partition in DFU mode
 static uint16_t dfu_writeBlockIndex = 0;
 static uint16_t dfu_writeSize = 0;
 
+inline bool isPartitionValid( const PartitionId partitionId )
+{
+    return partitionId > Partition_Invalid && partitionId < Partition_COUNT;
+}
+
+static PartitionId alternateSettingToPartition( const AlternateSettings altSetting )
+{
+    switch( altSetting )
+    {
+#if DFU_BOOT 
+        case USB_ALTERNATESETTING_App: return Partition_App;
+#elif DFU_APP
+        case USB_ALTERNATESETTING_Bootloader: return Partition_Bootloader;
+        case USB_ALTERNATESETTING_HardwareData: return Partition_HardwareData;
+        case USB_ALTERNATESETTING_CalibrationData: return Partition_CalibrationData;
+#else
+#error "Unknown DFU setup"
+#endif
+        default:
+        case USB_ALTERNATESETTING_COUNT:
+            return  Partition_Invalid; //< invalid
+    };
+}
 static void nvmctrl_wait_ready()
 {
 #if __SAMD11__
@@ -264,12 +301,12 @@ static bool nvmctrl_usePage_valid()
     return true;
 }
 
-static bool nvmctrl_userImage_valid()
+static bool nvmctrl_mainImage_valid()
 {
-    static volatile uint32_t* userAppStackPointer = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppStackVectorOffset);
-    static volatile uint32_t* userAppResetVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppResetVectorOffset);
-    static volatile uint32_t* userAppCrcVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppCrcEmbedOffset);
-    static volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(partition[USB_ALTERNATESETTING_App].origin + userAppLengthEmbedOffset);
+    static volatile uint32_t* userAppStackPointer = (volatile uint32_t*)(partition[Partition_App].origin + userAppStackVectorOffset);
+    static volatile uint32_t* userAppResetVector = (volatile uint32_t*)(partition[Partition_App].origin + userAppResetVectorOffset);
+    static volatile uint32_t* userAppCrcVector = (volatile uint32_t*)(partition[Partition_App].origin + userAppCrcEmbedOffset);
+    static volatile uint32_t* userAppLengthVector = (volatile uint32_t*)(partition[Partition_App].origin + userAppLengthEmbedOffset);
 
     /// Check on the Stack-pointer address points somewhere in the RAM
     const uint32_t currentUserAppStackPointer = *userAppStackPointer;
@@ -281,8 +318,8 @@ static bool nvmctrl_userImage_valid()
 
     /// Check on the Reset_Handler address needs to point inside the Flash region for user-app
     const uint32_t currentUserAppResetVector = *userAppResetVector;
-    if( (currentUserAppResetVector < partition[USB_ALTERNATESETTING_App].origin)
-        || (currentUserAppResetVector >= partition[USB_ALTERNATESETTING_App].origin + partition[USB_ALTERNATESETTING_App].length) )
+    if( (currentUserAppResetVector < partition[Partition_App].origin)
+        || (currentUserAppResetVector >= partition[Partition_App].origin + partition[Partition_App].length) )
     {
         return false;
     }
@@ -299,10 +336,10 @@ static bool nvmctrl_userImage_valid()
     //If user-app is 0 bytes or extends past end of available flash then it must be invalid
     const uint32_t userAppLength = *userAppLengthVector;
     if( (userAppLength == 0)
-        || (userAppLength > partition[USB_ALTERNATESETTING_App].length) )
+        || (userAppLength > partition[Partition_App].length) )
         return false;
 
-    return checkCrcRegion( partition[USB_ALTERNATESETTING_App].origin, userAppLength );
+    return checkCrcRegion( partition[Partition_App].origin, userAppLength );
 }
 
 /** When writing the user-page the first 32-bytes are reserved by Samd specification.
@@ -322,7 +359,7 @@ static bool nvmctrl_userpage_PreWrite( const uint32_t nvm_addr, const uint32_t n
     return true;
 }
 
-static bool nvmctrl_bootloader_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+static bool nvmctrl_hardwareData_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
 {
     (void)nvm_addr; //< unused
     (void)nvm_writeLength; //< unused
@@ -331,13 +368,13 @@ static bool nvmctrl_bootloader_PreWrite( const uint32_t nvm_addr, const uint32_t
     return false;
 }
 
-static bool nvmctrl_bootloader_valid()
+static bool nvmctrl_hardwareData_valid()
 {
     /// @todo Any sort of bootloader verification!
     return true;
 }
 
-static bool nvmctrl_main_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
+static bool nvmctrl_mainImage_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
 {
     (void)nvm_writeLength; //< unused
 
@@ -382,12 +419,12 @@ typedef struct
     fnNvmCtrlPostComplete postComplete;
 } PartitionFuncs;
 
-static const PartitionFuncs partitionFunct[USB_ALTERNATESETTING_COUNT] =
+static const PartitionFuncs partitionFunct[Partition_COUNT] =
 {
-     [USB_ALTERNATESETTING_App] = { nvmctrl_main_PreWrite, nvmctrl_userImage_valid }
-   , [USB_ALTERNATESETTING_Bootloader] = { nvmctrl_bootloader_PreWrite, nvmctrl_bootloader_valid }
-   , [USB_ALTERNATESETTING_HardwareData] = { nvmctrl_bootloader_PreWrite, nvmctrl_bootloader_valid }
-   , [USB_ALTERNATESETTING_CalibrationData] = { nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid }
+     [Partition_App] = { nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid }
+   , [Partition_Bootloader] = { nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid }
+   , [Partition_HardwareData] = { nvmctrl_hardwareData_PreWrite, nvmctrl_hardwareData_valid }
+   , [Partition_CalibrationData] = { nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid }
 };
 
 /// red LED
@@ -459,12 +496,18 @@ static void udc_control_send_zlp( void )
 
 static void dfuDownloadToNvm()
 {
-    const uint32_t nvm_addr = partition[usb_alternateSetting].origin + (dfu_writeBlockIndex * dfu_blockSize);
+    if( !isPartitionValid( dfu_partition ) )
+    {
+        USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
+        return;
+    }
+
+    const uint32_t nvm_addr = partition[dfu_partition].origin + (dfu_writeBlockIndex * dfu_blockSize);
 
     // Make sure we don't write past the end of the partition
-    const uint32_t nvm_writeLength = MIN( MIN( dfu_writeSize, sizeof( udc_ctrl_out_buf )), partition[usb_alternateSetting].length - (dfu_writeBlockIndex * dfu_blockSize) );
+    const uint32_t nvm_writeLength = MIN( MIN( dfu_writeSize, sizeof( udc_ctrl_out_buf )), partition[dfu_partition].length - (dfu_writeBlockIndex * dfu_blockSize) );
 
-    if( !partitionFunct[usb_alternateSetting].preWrite( nvm_addr, nvm_writeLength ) )
+    if( !partitionFunct[dfu_partition].preWrite( nvm_addr, nvm_writeLength ) )
     {
         /// @todo Better failure method?
         USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
@@ -508,7 +551,7 @@ static bool USB_Service()
 
         dfu_status.bState = dfuIDLE;
         dfu_status.bStatus = OK;
-        usb_alternateSetting = USB_ALTERNATESETTING_App;
+        dfu_partition = Partition_App;
         usb_config = 0;
     }
     else
@@ -545,7 +588,9 @@ static bool USB_Service()
             {
                 ///< Protect against flash overflow
                 const uint32_t writeEndIndex = (dfu_writeBlockIndex * dfu_blockSize) + dfu_writeSize;
-                if( writeEndIndex < partition[usb_alternateSetting].length )
+
+                if( isPartitionValid( dfu_partition ) 
+                    &&  writeEndIndex < partition[dfu_partition].length )
                 {
                     dfuDownloadToNvm();
                     dfu_status.bState = dfuDNLOAD_IDLE;
@@ -562,7 +607,8 @@ static bool USB_Service()
             break;
         case dfuMANIFEST:
             {
-                if( partitionFunct[usb_alternateSetting].postComplete() )
+                if( isPartitionValid( dfu_partition ) 
+                    && partitionFunct[dfu_partition].postComplete() )
                 {
                     dfu_status.bState = dfuMANIFEST_WAIT_RESET;
                     dfu_status.bStatus = OK;
@@ -687,10 +733,15 @@ static bool USB_Service()
                 case USB_SET_INTERFACE:
                     if( request->wValue < USB_ALTERNATESETTING_COUNT )
                     {
-                        usb_alternateSetting = request->wValue;
+                        dfu_partition = alternateSettingToPartition(request->wValue);
                         udc_control_send_zlp();
                     }
-                    else ///< Unexpected partition index
+                    else
+                    {
+                        dfu_partition = Partition_Invalid;
+                    }
+
+                    if ( !isPartitionValid( dfu_partition ) ) ///< Unexpected partition index
                     {
                         USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
                         dfu_status.bState = dfuERROR;
@@ -1010,14 +1061,18 @@ void bootloader( void )
 
     configureClock();
 
+#if DFU_BOOT
     // Check entry to DFU 
     const bool enterDfu = (!partitionFunct[USB_ALTERNATESETTING_App].postComplete()
         || hasBootloaderResetMagic());
+#else /// DFU_APP
+    const bool enterDfu = true;
+#endif
 
 #ifdef USE_DBL_TAP
     /* a 'double tap' has happened, so run bootloader */
     resetMagic = 0;
-#endif
+#endif 
 
     if( enterDfu )
     {
@@ -1055,6 +1110,12 @@ void bootloader( void )
 #else
 #error "Unsupported processor class"
 #endif
+#endif
+
+
+#if DFU_APP
+    /// Exiting App-bootloader returns us to the root-bootloader
+    resetMagic = ResetMagic_Bootloader;
 #endif
 
     // After DFU we will start the user-app

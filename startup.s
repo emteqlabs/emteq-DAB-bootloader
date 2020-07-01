@@ -45,6 +45,11 @@ _vectors:
 #endif /* STARTUP_FROM_RESET */
   .word loop
   .word loop
+  .word loop
+  .word loop
+  .word loop
+  .word 0
+  .word 0
 
   .section .init, "ax"
   .thumb_func
@@ -74,7 +79,13 @@ zero_loop:
 
   /* if bootloader returns, we proceed to the user app */
 
-  ldr r1, = __origin_APP_FLASH /* origin of user app */ 
+#ifdef DFU_BOOT
+  ldr r1, = __origin_APP_FLASH /* origin of user app */
+#elif DFU_APP
+  ldr r1, = __origin_FLASH /* origin of bootloader */
+#else
+#error "Unknown DFU setup"
+#endif
   ldr r0, =0xE000ED08 /* VTOR register */
   str r1, [r0] /* point VTOR to user app */
   ldr r0, [r1] /* load stack pointer from user app */
