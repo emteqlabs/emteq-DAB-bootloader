@@ -18,23 +18,34 @@ endif
 RELEASE_SUFFIX:=#
 DEBUG_SUFFIX:=_d
 
-BOOTPROTECT_SIZE:=0x2000
+
+ifeq ($(APP),BOSSAC)
+	BOOTPROTECT_SIZE:=0x4000
+	VARIANT:=Bossac
+else
+	BOOTPROTECT_SIZE:=0x2000
+	ifdef APP
+		VARIANT:=App
+	else
+		VARIANT:=Boot
+	endif
+endif
 
 ifdef APP
 	BASE_ADDRESS:=$(BOOTPROTECT_SIZE)
-	VARIANT:=_App
 else
 # Bootloader
 	BASE_ADDRESS:=0x0000
-	VARIANT:=_Boot
 endif
+
+VARIANT_SUFFIX=_$(VARIANT)
 
 ## BIN may be defined from make commandline i.e. make BIN=MyDfuBootloader
 ifndef BIN
 ifdef DEBUG
-	BIN = DfuBootloader$(TARGET)$(VARIANT)$(DEBUG_SUFFIX)
+	BIN = DfuBootloader$(TARGET)$(VARIANT_SUFFIX)$(DEBUG_SUFFIX)
 else
-	BIN = DfuBootloader$(TARGET)$(VARIANT)$(RELEASE_SUFFIX)
+	BIN = DfuBootloader$(TARGET)$(VARIANT_SUFFIX)$(RELEASE_SUFFIX)
 endif
 endif
 
@@ -74,10 +85,10 @@ LDFLAGS += -Wl,-z,norelro -Wl,--hash-style=gnu -Wl,--build-id=none
 LDFLAGS += -Xlinker --defsym=__FLASH_OFFSET__=$(BASE_ADDRESS)
 
 ifdef APP
-CFLAGS += -DDFU_APP
+DEFINES += -DDFU_APP
 LDFLAGS += -Wl,-L../linker/,--script=app.ld
 else
-CFLAGS += -DDFU_BOOT
+DEFINES += -DDFU_BOOT
 LDFLAGS += -Wl,-L../linker/,--script=boot.ld
 endif
 
@@ -150,6 +161,8 @@ SAMD51: LDFLAGS += -mcpu=cortex-m4
 SAMD51: INCLUDES += -I../include/SAMD51
 
 info:
+	@echo APP:
+	@echo $(APP)
 	@echo DEFINES:
 	@echo $(DEFINES)
 	@echo INCLUDES:
