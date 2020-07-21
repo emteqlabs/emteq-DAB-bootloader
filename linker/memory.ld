@@ -23,7 +23,7 @@ __APP_OFFSET__ =  DEFINED(__APP_OFFSET__) ? __APP_OFFSET__ : __BOOTPROTECT_SIZE_
 ASSERT( __origin_APP_FLASH >= __BOOTPROTECT_SIZE__, "App mustn't overlap with boot protection" )
 
 /** @{ RAM */
-__RESERVE_ETBSIZE__ = 0x0000; /* First 32K used by ETB trace */
+__RESERVE_ETBSIZE__ = 32K; /* First 32K used by ETB trace */
 /** @} */
 
 /* Linker script to configure memory regions.
