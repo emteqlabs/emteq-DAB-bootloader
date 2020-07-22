@@ -374,6 +374,39 @@ static bool nvmctrl_hardwareData_valid()
     return true;
 }
 
+static bool nvmctrl_booprot_select()
+{
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_SBPDIS;
+    nvmctrl_wait_ready();
+    return true;
+}
+
+static bool nvmctrl_booprot_deselect()
+{
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_CBPDIS;
+    nvmctrl_wait_ready();
+    return true;
+}
+
+static bool nvmctrl_mainImage_select()
+{
+    return true;
+}
+static bool nvmctrl_mainImage_deselect()
+{
+    return true;
+}
+
+static bool nvmctrl_calib_select()
+{
+    return true;
+}
+
+static bool nvmctrl_calib_deselect()
+{
+    return true;
+}
+
 static bool nvmctrl_mainImage_PreWrite( const uint32_t nvm_addr, const uint32_t nvm_writeLength )
 {
     (void)nvm_writeLength; //< unused
@@ -405,6 +438,11 @@ static bool nvmctrl_mainImage_PreWrite( const uint32_t nvm_addr, const uint32_t 
     return true;
 }
 
+/** On parititon being selected
+*/
+typedef bool (*fnNvmCtrlSelect)();
+typedef bool (*fnNvmCtrlDeselect)();
+
 /** Checks prior to writing a block to a parition
 */
 typedef bool (*fnNvmCtrlPreWrite)(const uint32_t nvm_addr, const uint32_t nvm_writeLength);
@@ -415,16 +453,18 @@ typedef bool (*fnNvmCtrlPostComplete)();
 
 typedef struct
 {
+    fnNvmCtrlSelect disableProtect;
     fnNvmCtrlPreWrite preWrite;
-    fnNvmCtrlPostComplete postComplete;
+    fnNvmCtrlPostComplete validate;
+    fnNvmCtrlDeselect enableProtect;
 } PartitionFuncs;
 
 static const PartitionFuncs partitionFunct[Partition_COUNT] =
 {
-     [Partition_App] = { nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid }
-   , [Partition_Bootloader] = { nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid }
-   , [Partition_HardwareData] = { nvmctrl_hardwareData_PreWrite, nvmctrl_hardwareData_valid }
-   , [Partition_CalibrationData] = { nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid }
+     [Partition_App] = { nvmctrl_mainImage_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_mainImage_deselect }
+   , [Partition_Bootloader] = { nvmctrl_booprot_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_booprot_deselect }
+   , [Partition_HardwareData] = { nvmctrl_booprot_select, nvmctrl_hardwareData_PreWrite, nvmctrl_hardwareData_valid, nvmctrl_booprot_deselect }
+   , [Partition_CalibrationData] = { nvmctrl_calib_select, nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid, nvmctrl_calib_deselect }
 };
 
 /// red LED
@@ -608,7 +648,7 @@ static bool USB_Service()
         case dfuMANIFEST:
             {
                 if( isPartitionValid( dfu_partition ) 
-                    && partitionFunct[dfu_partition].postComplete() )
+                    && partitionFunct[dfu_partition].validate() )
                 {
                     dfu_status.bState = dfuMANIFEST_WAIT_RESET;
                     dfu_status.bStatus = OK;
@@ -741,7 +781,7 @@ static bool USB_Service()
                         dfu_partition = Partition_Invalid;
                     }
 
-                    if ( !isPartitionValid( dfu_partition ) ) ///< Unexpected partition index
+                    if ( !isPartitionValid( dfu_partition ) )  ///< Unexpected partition index
                     {
                         USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
                         dfu_status.bState = dfuERROR;
@@ -761,25 +801,47 @@ static bool USB_Service()
                         dfu_status.bState = dfuMANIFEST;
                     }
                     break;
+
                 case DFU_GETSTATE:
                     udc_control_send( (const uint8_t*)&dfu_status.bState, sizeof( dfu_status.bState ) );
                     break;
+
                 case DFU_DNLOAD:
                     if( request->wLength ) //< "Download Request" 6.1.1 DFU_DNLOAD Request 
                     {
                         USB->DEVICE.DeviceEndpoint[0].EPINTFLAG.reg = USB_DEVICE_EPINTFLAG_TRCPT0; //< clear
 
-                        dfu_status.bState = dfuDNBUSY;
                         dfu_writeSize = request->wLength;
                         dfu_writeBlockIndex = request->wValue;
+
+                        const bool isDownloadStarted = ((dfu_status.bState >= dfuDNLOAD_SYNC) && (dfu_status.bState <= dfuDNLOAD_IDLE));
+                        if( !isDownloadStarted && !partitionFunct[dfu_partition].disableProtect() ) //< Select on start of download
+                        {
+                            dfu_status.bState = dfuERROR;
+                            dfu_status.bStatus = errPROG;
+                            udc_control_send_zlp();
+                        }
+                        else
+                        {
+                            dfu_status.bState = dfuDNBUSY;
+                        }
                     }
                     else //< "Completion packet" 6.1.1.1 Zero Length DFU_DNLOAD Request 
                     {
                         nvmctrl_write_flush();
 
-                        dfu_status.bState = dfuMANIFEST_SYNC;
+                        if( partitionFunct[dfu_partition].enableProtect() )
+                        {
+                            dfu_status.bState = dfuMANIFEST_SYNC;
+                        }
+                        else
+                        {
+                            dfu_status.bState = dfuERROR;
+                            dfu_status.bStatus = errPROG;
+                        }
                     }
                     break;
+
                 case DFU_ABORT:
                     {
                         dfu_status.bState = dfuIDLE;
@@ -1063,7 +1125,7 @@ void bootloader( void )
 
 #if DFU_BOOT
     // Check entry to DFU 
-    const bool enterDfu = (!partitionFunct[USB_ALTERNATESETTING_App].postComplete()
+    const bool enterDfu = (!partitionFunct[USB_ALTERNATESETTING_App].validate()
         || hasBootloaderResetMagic());
 #else /// DFU_APP
     const bool enterDfu = true;
