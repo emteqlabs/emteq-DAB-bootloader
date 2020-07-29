@@ -119,3 +119,83 @@ bool nvmctrl_bootprot_rearm()
     nvmctrl_wait_ready();
     return true;
 }
+
+void nvmctrl_bootprot_set( const uint32_t size )
+{
+    const uint32_t new_bootprot = 15 - (size / 8192); // 16k. See "Table 25-10 Boot Loader Size" in datasheet.
+    nvmctrl_wait_ready();	
+
+#if 1
+
+    /** TODO:
+    uint32_t userPage[__length_USERPAGE_FLASH / sizeof( uint32_t )];
+    memcpy( userPage, (uint32_t*)__origin_USERPAGE_FLASH, sizeof( userPage ) );
+
+    // Execute "EP" Erase Page (512Bytes region to 0xFFFFF)
+    nvmctrl_wait_ready();
+    NVMCTRL->ADDR.reg = (uint32_t)__origin_USERPAGE_FLASH;
+    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EP;
+    nvmctrl_wait_ready();
+    */
+#else
+    uint32_t fuses[128];    // 512 bytes (whole user page)	
+
+    std::memcpy( fuses, (uint32_t*)NVM_FUSE_ADDR, sizeof( fuses ) );
+
+    // If it appears the fuses page was erased (all ones), replace fuses with reasonable values.	
+    bool repair_fuses = (fuses[0] == 0xffffffff ||
+                          fuses[1] == 0xffffffff ||
+                          fuses[4] == 0xffffffff);
+
+    if( repair_fuses )
+    {
+        // These canonical fuse values taken from working Adafruit boards.	
+        // BOOTPROT is set to nothing in these values.	
+        fuses[0] = 0xFE9A9239;
+        fuses[1] = 0xAEECFF80;
+        fuses[2] = 0xFFFFFFFF;
+        // fuses[3] is for user use, so we don't change it.	
+        fuses[4] = 0x00804010;
+    }
+
+    uint32_t current_bootprot = (fuses[0] & NVMCTRL_FUSES_BOOTPROT_Msk) >> NVMCTRL_FUSES_BOOTPROT_Pos;
+
+    // logval("repair_fuses", repair_fuses);	
+   //  logval("current_bootprot", current_bootprot);	
+    // logval("new_bootprot", new_bootprot);	
+
+     // Don't write if nothing will be changed.	
+    if( current_bootprot == new_bootprot && !repair_fuses )
+    {
+        return;
+    }
+
+    // Update fuses BOOTPROT value with desired value.	
+    fuses[0] = (fuses[0] & ~NVMCTRL_FUSES_BOOTPROT_Msk) | (new_bootprot << NVMCTRL_FUSES_BOOTPROT_Pos);
+
+    // Write the fuses.	
+    NVMCTRL->CTRLA.bit.WMODE = NVMCTRL_CTRLA_WMODE_MAN;
+    nvmctrl_set_addr( NVM_FUSE_ADDR );  // Set address to user page.	
+    nvmctrl_exec_cmd( NVMCTRL_CTRLB_CMD_EP );   // Erase user page.	
+    nvmctrl_exec_cmd( NVMCTRL_CTRLB_CMD_PBC );  // Clear page buffer.	
+    for( size_t i = 0; i < sizeof( fuses ) / sizeof( uint32_t ); i += 4 )
+    {
+        // Copy a quadword, one 32-bit word at a time. Writes to page	
+        // buffer must be 16 or 32 bits at a time, so we use explicit	
+        // word writes	
+        NVM_FUSE_ADDR[i + 0] = fuses[i + 0];
+        NVM_FUSE_ADDR[i + 1] = fuses[i + 1];
+        NVM_FUSE_ADDR[i + 2] = fuses[i + 2];
+        NVM_FUSE_ADDR[i + 3] = fuses[i + 3];
+        nvmctrl_set_addr( &NVM_FUSE_ADDR[i] ); // Set write address to the current quad word.	
+        nvmctrl_exec_cmd( NVMCTRL_CTRLB_CMD_WQW ); // Write quad word.	
+    }
+
+    Emteq::resetIntoApp();
+#endif
+}
+
+void protectBootloader( const uint32_t size )
+{
+    set_fuses_and_bootprot( 15 - (size / 8192) ); // 16k. See "Table 25-10 Boot Loader Size" in datasheet.	
+}
