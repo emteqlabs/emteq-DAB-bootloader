@@ -194,8 +194,3 @@ void nvmctrl_bootprot_set( const uint32_t size )
     Emteq::resetIntoApp();
 #endif
 }
-
-void protectBootloader( const uint32_t size )
-{
-    set_fuses_and_bootprot( 15 - (size / 8192) ); // 16k. See "Table 25-10 Boot Loader Size" in datasheet.	
-}
