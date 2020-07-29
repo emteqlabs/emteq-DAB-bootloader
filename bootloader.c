@@ -43,7 +43,9 @@
 #include "dfu.h"
 #include "usb.h"
 #include "nvm_data.h"
+#include "nvmctrl_utils.h" //< nvmctrl_wait_ready
 #include "usb_descriptors.h"
+#include "partition.h"
 #include "serialno.h"
 
 /*- Definitions -------------------------------------------------------------*/
@@ -75,31 +77,6 @@ const char cVersionTag[] __attribute__( (section( ".versionTag" )) ) __attribute
 #endif
 ;
 
-/** NVM User page reserved word layout
-The Eight 32 - bit words( 32 - bytes )
-1) 0 - 31
-2) 32 - 64
-3) 63 - 95
-4) 96 - 127 -- USER - Word
-5) 128 - 159
-6) 160 - 191
-7) 192 - 223 -- USER - Word
-8) 224 - 255 ++ USER - Hardware version
-*/
-typedef struct
-{
-    uint32_t reserved1[3];
-    uint32_t userWord1;
-    uint32_t reserved2[2];
-    uint32_t userWord2;
-    uint32_t hardwareVersion;
-} UserPageReserved;
-
-/** @note "9.4 NVM User Page Mapping" The first eight 32-bit words (32 Bytes) of the Non Volatile Memory (NVM) User Page contain calibration data that are
-automatically read at device power on.The remaining 480 Bytes can be used for storing custom parameters.
-*/
-UserPageReserved userPageReserved __attribute__( (section( ".userPageReserved" )) );
-
 /*- Types -------------------------------------------------------------------*/
 typedef struct
 {
@@ -119,39 +96,7 @@ static __attribute__( (aligned( 4 )) ) udc_mem_t udc_mem[USB_EPT_NUM];
 static __attribute__( (aligned( 4 )) ) uint8_t udc_ctrl_in_buf[dfu_blockSize];
 static __attribute__( (aligned( 4 )) ) uint8_t udc_ctrl_out_buf[dfu_blockSize];
 
-extern char __origin_APP_FLASH[],  __length_APP_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_BOOT_FLASH[], __length_BOOT_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_USERPAGE_FLASH[], __length_USERPAGE_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_CALDATA_FLASH[], __length_CALDATA_FLASH[]; ///< @note Defined in .ld linker
-extern char __origin_HWDATA_FLASH[], __length_HWDATA_FLASH[]; ///< @note Defined in .ld linker
-extern char __stack_start__[], __stack_end__[]; ///< @note Defined in .ld linker
 
-typedef enum
-{
-    Partition_Invalid = -1
-
-    , Partition_App = 0
-    , Partition_Bootloader
-    , Partition_HardwareData
-    , Partition_CalibrationData
-
-    /// Sentinal
-    , Partition_COUNT
-} PartitionId;
-
-typedef struct
-{
-    uint32_t origin;
-    uint32_t length;
-} PartitionAddress;
-
-static const PartitionAddress partition[Partition_COUNT] =
-{
-     [Partition_App] = { (uint32_t)__origin_APP_FLASH, (uint32_t)__length_APP_FLASH }
-   , [Partition_Bootloader] = { (uint32_t)__origin_BOOT_FLASH, (uint32_t)__length_BOOT_FLASH }
-   , [Partition_HardwareData] = { (uint32_t)__origin_HWDATA_FLASH, (uint32_t)__length_HWDATA_FLASH }
-   , [Partition_CalibrationData] = { (uint32_t)__origin_CALDATA_FLASH, (uint32_t)__length_CALDATA_FLASH }
-};
 
 
 static uint8_t usb_status[2] = { 0, 0 };
@@ -160,10 +105,6 @@ static int8_t dfu_partition = -1; //, Sets the partition in DFU mode
 static uint16_t dfu_writeBlockIndex = 0;
 static uint16_t dfu_writeSize = 0;
 
-inline bool isPartitionValid( const PartitionId partitionId )
-{
-    return partitionId > Partition_Invalid && partitionId < Partition_COUNT;
-}
 
 static PartitionId alternateSettingToPartition( const AlternateSettings altSetting )
 {
@@ -183,84 +124,7 @@ static PartitionId alternateSettingToPartition( const AlternateSettings altSetti
             return  Partition_Invalid; //< invalid
     };
 }
-static void nvmctrl_wait_ready()
-{
-#if __SAMD11__
-    while( !NVMCTRL->INTFLAG.bit.READY );
-#elif __SAMD51__
-    while( !NVMCTRL->STATUS.bit.READY );
-#else
-#error "Unsupported processor class"
-#endif
-}
 
-/*Before erasing the NVM User Page, ensure that the first 32 Bytes are read to a buffer and later written back
-* to the same area unless a configuration change is intended
-*/
-static void nvmctrl_erase_userpage()
-{
-    uint8_t userPageReservedBuffer[sizeof( userPageReserved )];
-
-    memcpy( userPageReservedBuffer, (void*)&userPageReserved, sizeof( userPageReserved ) );
-
-    // Execute "EP" Erase Page (512Bytes region to 0xFFFFF)
-    nvmctrl_wait_ready();
-    NVMCTRL->ADDR.reg = (uint32_t)__origin_USERPAGE_FLASH;
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EP;
-    nvmctrl_wait_ready();
-
-    //Restore the reserved data section contents
-    memcpy( (void*)&userPageReserved, userPageReservedBuffer, sizeof( userPageReserved ) );
-
-#if 0 ///< @todo will this be necessary?
-    //Commit the last quad-word in page-buffer to ensure the reserved data is commited
-    nvmctrl_wait_ready();
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WQW;
-    nvmctrl_wait_ready();
-#endif
-}
-
-/** Write of an incomplete quad-word (SAMD1) or row (SAMD11) must be flushed explicitly
-*/
-static void nvmctrl_write_flush()
-{
-    //Check if written up to a page boundary i.e. Automatic page-write shall have occurred
-    if( 0 == (NVMCTRL->ADDR.bit.ADDR % NVMCTRL_PAGE_SIZE) )
-        return;
-
-    nvmctrl_wait_ready();
-
-    //Page size: NVMCTRL_PAGE_SIZE==512 on SAMD51 and NVMCTRL_PAGE_SIZE==64 on SAMD11
-#if __SAMD11__
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_WP;
-#else
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WP;
-#endif
-    nvmctrl_wait_ready();
-}
-
-#if __SAMD11__
-static void nvmctrl_erase_row( uint32_t addr )
-{
-    nvmctrl_wait_ready();
-
-    //Execute Erase-Row command
-    // @note A row contains 4 pages
-    NVMCTRL->ADDR.reg = addr / 2;
-    NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
-    nvmctrl_wait_ready();
-}
-#elif __SAMD51__
-static void nvmctrl_erase_block( uint32_t dst )
-{
-    nvmctrl_wait_ready();
-
-    // Execute "EB" Erase block (8K region to 0xFFFF)
-    NVMCTRL->ADDR.reg = dst;
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
-    nvmctrl_wait_ready();
-}
-#endif
 
 
 static bool checkCrcRegion( const uint32_t address, const uint32_t length )
@@ -374,18 +238,14 @@ static bool nvmctrl_hardwareData_valid()
     return true;
 }
 
-static bool nvmctrl_booprot_select()
+static bool nvmctrl_bootpartition_select()
 {
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_SBPDIS;
-    nvmctrl_wait_ready();
-    return true;
+    return nvmctrl_bootprot_disarm();
 }
 
-static bool nvmctrl_booprot_deselect()
+static bool nvmctrl_bootpartition_deselect()
 {
-    NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_CBPDIS;
-    nvmctrl_wait_ready();
-    return true;
+    return nvmctrl_bootprot_rearm();
 }
 
 static bool nvmctrl_mainImage_select()
@@ -462,8 +322,8 @@ typedef struct
 static const PartitionFuncs partitionFunct[Partition_COUNT] =
 {
      [Partition_App] = { nvmctrl_mainImage_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_mainImage_deselect }
-   , [Partition_Bootloader] = { nvmctrl_booprot_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_booprot_deselect }
-   , [Partition_HardwareData] = { nvmctrl_booprot_select, nvmctrl_hardwareData_PreWrite, nvmctrl_hardwareData_valid, nvmctrl_booprot_deselect }
+   , [Partition_Bootloader] = { nvmctrl_bootpartition_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_bootpartition_deselect }
+   , [Partition_HardwareData] = { nvmctrl_bootpartition_select, nvmctrl_hardwareData_PreWrite, nvmctrl_hardwareData_valid, nvmctrl_bootpartition_deselect }
    , [Partition_CalibrationData] = { nvmctrl_calib_select, nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid, nvmctrl_calib_deselect }
 };
 
@@ -953,7 +813,7 @@ static void configureClock()
         GCLK_GENCTRL_GENEN;
 
     while( GCLK->SYNCBUSY.bit.GENCTRL0 );
-    OSCCTRL->DFLLCTRLA.reg = 0;// Configure the DFLL for USB clock recovery.
+    OSCCTRL->DFLLCTRLA.reg = 0;
 
     OSCCTRL->DFLLMUL.reg = OSCCTRL_DFLLMUL_CSTEP( 0x1 ) |
         OSCCTRL_DFLLMUL_FSTEP( 0x1 ) |
@@ -971,7 +831,7 @@ static void configureClock()
     while( OSCCTRL->DFLLSYNC.bit.DFLLVAL );
 
     OSCCTRL->DFLLCTRLB.reg = OSCCTRL_DFLLCTRLB_WAITLOCK |
-        OSCCTRL_DFLLCTRLB_CCDIS | OSCCTRL_DFLLCTRLB_USBCRM;
+        OSCCTRL_DFLLCTRLB_CCDIS | OSCCTRL_DFLLCTRLB_USBCRM;// Configure the DFLL for USB clock recovery.
 
     while( !OSCCTRL->STATUS.bit.DFLLRDY );
 
@@ -1136,7 +996,7 @@ void bootloader( void )
     resetMagic = 0;
 #endif 
 
-    if( enterDfu )
+    if( true || enterDfu )
     {
         /// @todo Duplication between DFU bootloader and firmware!
         usb_string_descriptor_t* serialDescriptor = getStringDescriptor( USB_STR_SERIAL_NUMBER );
