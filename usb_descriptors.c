@@ -189,9 +189,9 @@ usb_configuration_hierarchy_t usb_configuration_hierarchy __attribute__( (aligne
 #if USE_STRING_DESCRIPTORS
 
 #define STR_MANUFACTURER u"Emteq"
-#define STR_PRODUCT u"EmteqDAB DFU"
+#define STR_PRODUCT u"EmteqDAB"
 #define STR_SERIAL u"DAB\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" ///< @note Pre-populated 'DAB' prefix
-#define STR_DFU_App STR_PRODUCT u"-App"
+#define STR_DFU_App STR_PRODUCT u"-Application"
 #define STR_DFU_CalibrationData STR_PRODUCT u"-Calibration"
 #define STR_DFU_HardwareData STR_PRODUCT u"-HardwareData"
 #define STR_DFU_Bootloader STR_PRODUCT  u"-Bootloader"
