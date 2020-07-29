@@ -996,7 +996,7 @@ void bootloader( void )
     resetMagic = 0;
 #endif 
 
-    if( true || enterDfu )
+    if( enterDfu )
     {
         /// @todo Duplication between DFU bootloader and firmware!
         usb_string_descriptor_t* serialDescriptor = getStringDescriptor( USB_STR_SERIAL_NUMBER );
