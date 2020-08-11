@@ -572,13 +572,14 @@ bool readElfToBuffer( FILE* elffp, uint8_t** binary, uint32_t* max_offset, const
 
 	*max_offset = phy_addr - userAppAddress;
 
-	/* check if program image ends on a 32-bit boundary */
-	if( phy_addr & 0x3 )
+	/* check if program image ends on a N-bit boundary */
+	const uint32_t cByteAligment = 8;
+	const uint32_t imagePadding = cByteAligment - (*max_offset % cByteAligment);
+	if(imagePadding)
 	{
-		stuff_size = 4 - (phy_addr & 0x3);
-		*max_offset += stuff_size;
+		*max_offset += imagePadding;
 		/* create blank region at end to pad out to whole 32-bits (as the CRC will require this) */
-		find_blob( phy_addr, stuff_size, &pm_list );
+		find_blob( phy_addr, imagePadding, &pm_list );
 	}
 
 	/*
