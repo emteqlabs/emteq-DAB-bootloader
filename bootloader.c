@@ -159,7 +159,7 @@ PAC->WRCTRL.reg = PAC_WRCTRL_PERID( ID_DSU ) | PAC_WRCTRL_KEY_SET;
     return dsuCrcData == 0 && !(DSU->STATUSA.bit.PERR || DSU->STATUSA.bit.BERR);
 }
 
-static bool nvmctrl_usePage_valid()
+static bool nvmctrl_userPage_valid()
 {
     /// @todo There doesn't seem any benefit of CRC on the calibration data at present?
     return true;
@@ -324,7 +324,7 @@ static const PartitionFuncs partitionFunct[Partition_COUNT] =
      [Partition_App] = { nvmctrl_mainImage_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_mainImage_deselect }
    , [Partition_Bootloader] = { nvmctrl_bootpartition_select, nvmctrl_mainImage_PreWrite, nvmctrl_mainImage_valid, nvmctrl_bootpartition_deselect }
    , [Partition_HardwareData] = { nvmctrl_bootpartition_select, nvmctrl_hardwareData_PreWrite, nvmctrl_hardwareData_valid, nvmctrl_bootpartition_deselect }
-   , [Partition_CalibrationData] = { nvmctrl_calib_select, nvmctrl_userpage_PreWrite, nvmctrl_usePage_valid, nvmctrl_calib_deselect }
+   , [Partition_CalibrationData] = { nvmctrl_calib_select, nvmctrl_userpage_PreWrite, nvmctrl_userPage_valid, nvmctrl_calib_deselect }
 };
 
 /// red LED
