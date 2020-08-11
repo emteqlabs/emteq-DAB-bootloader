@@ -416,7 +416,7 @@ bool readBinToBuffer( FILE* binFp, uint8_t** binary, uint32_t* max_offset )
 	rewind( binFp );
 	
 	/* check if program image ends on a 32-bit boundary */
-	const uint32_t cByteAligment = 4;
+	const uint32_t cByteAligment = 8;
 	const uint32_t imagePadding = cByteAligment - (*max_offset % cByteAligment);
 
 	// allocate memory to contain the whole file:

@@ -68,10 +68,6 @@ void nvmctrl_erase_userpage()
 */
 void nvmctrl_write_flush()
 {
-    //Check if written up to a page boundary i.e. Automatic page-write shall have occurred
-    if( 0 == (NVMCTRL->ADDR.bit.ADDR % NVMCTRL_PAGE_SIZE) )
-        return;
-
     nvmctrl_wait_ready();
 
     //Page size: NVMCTRL_PAGE_SIZE==512 on SAMD51 and NVMCTRL_PAGE_SIZE==64 on SAMD11
