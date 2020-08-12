@@ -87,15 +87,24 @@ def vid_pid(x):
     return int(x, 16)
 
 def main():
-    parser = argparse.ArgumentParser(description="A tool for checking a USB device's Windows compatibility ID")
-    parser.add_argument('-v', dest='vendorid', metavar='<VendorID>',
-                        type=vid_pid, help="Vendor ID of device",
-                        required=True)
-    parser.add_argument('-p', dest='productid', metavar='<ProductID>',
-                        type=vid_pid, help="Product ID of device",
-                        required=True)
-    args = parser.parse_args()
-    find_descriptors(args.vendorid, args.productid)
+
+
+    #parser = argparse.ArgumentParser(description="A tool for checking a USB device's Windows compatibility ID")
+    #parser.add_argument('-v', dest='vendorid', metavar='<VendorID>',
+    #                    type=vid_pid, help="Vendor ID of device",
+    #                    required=True)
+    #parser.add_argument('-p', dest='productid', metavar='<ProductID>',
+    #                    type=vid_pid, help="Product ID of device",
+    #                    required=True)
+    #try:
+    #    args = parser.parse_args()
+    #except:
+    #    return "Invalid Args"
+    
+    usbVendorId = 0x04D8;
+    usbProductId = 0xEC5A;
+
+    find_descriptors(usbVendorId, usbProductId)
 
 if __name__ == "__main__":
     main()
