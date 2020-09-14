@@ -113,6 +113,20 @@ enum
   USB_IMP_FB_DATA_ENDPOINT = 2 << 4,
 };
 
+
+typedef enum
+{
+    MS_OS_20_SET_HEADER_DESCRIPTOR = 0x00,
+    MS_OS_20_SUBSET_HEADER_CONFIGURATION = 0x01,
+    MS_OS_20_SUBSET_HEADER_FUNCTION = 0x02,
+    MS_OS_20_FEATURE_COMPATBLE_ID = 0x03,
+    MS_OS_20_FEATURE_REG_PROPERTY = 0x04,
+    MS_OS_20_FEATURE_MIN_RESUME_TIME = 0x05,
+    MS_OS_20_FEATURE_MODEL_ID = 0x06,
+    MS_OS_20_FEATURE_CCGP_DEVICE = 0x07,
+    MS_OS_20_FEATURE_VENDOR_REVISION = 0x08
+} microsoft_os_20_type_t;
+
 /*- Types -------------------------------------------------------------------*/
 typedef struct PACK
 {
@@ -184,6 +198,8 @@ typedef struct PACK
 } usb_string_descriptor_t;
 #endif
 
+#if 0 //< MS v1.0 Descriptors
+
 /** Microsoft WCID descriptor
 * @see https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-defined-usb-descriptors
 */
@@ -225,6 +241,117 @@ typedef struct PACK
     uint16_t wCount;
     USB_MicrosoftCustomProperty_Section sections[];
 } usb_microsoft_extended_properties_t;
+
+#else //< MS v2.0 Descriptors
+
+// USB Binary Device Object Store (BOS)
+// https://developers.google.com/web/fundamentals/native-hardware/build-for-webusb/
+typedef struct PACK
+{
+    uint8_t bLength; ///< Size of this descriptor
+    uint8_t bDescriptorType; ///<  = USB_DEVICE_CAPABILITY_DESCRIPTOR Device capability descriptor
+    uint8_t bDevCapabilityType; ///<  = 0x05 Platform capability descriptor
+    uint8_t bReserved; ///< = 0x00;
+    uint8_t PlatformCapabilityUUID[16]; ///< WebUSB platform capability descriptor GUID in little-endian format
+    //uint8_t CapabilityData[];
+} usb_desc_bos_platform_t;
+
+typedef struct PACK 
+{
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint16_t wTotalLength;
+    uint8_t bNumDeviceCaps;
+} usb_bos_descriptor_header_t;
+
+
+typedef struct PACK
+{
+    uint32_t dwWindowsVersion; ///< = 0x06030000 Windows version - Minimum Windows version (8.1) (0x06030000)
+    uint16_t wMSOSDescriptorSetTotalLength; ///< The length, in bytes of the MS OS 2.0 descriptor set
+    uint8_t bMS_VendorCode; ///< Vendor defined code to use to retrieve this version of the MS OS 2.0 descriptor and also to set alternate enumeration behavior on the device.
+    uint8_t bAltEnumCode; ///< = 0x00 A non-zero value to send to the device to indicate that the device may return non-default USB descriptors for enumeration.  If the device does not support alternate enumeration, this value shall be 0.
+} usb_bos_ms_os_20_capability_t;
+
+typedef struct PACK
+{
+    usb_desc_bos_platform_t platform;
+    usb_bos_ms_os_20_capability_t capability;
+} usb_bos_ms_os_20_descriptor_t;
+
+///Microsoft OS 2.0 descriptor set header
+typedef struct PACK
+{
+    uint16_t wLength; ///< The length, in bytes, of this header. Shall be set to 10.
+    uint16_t wDescriptorType; ///< MSOS20_SET_HEADER_DESCRIPTOR
+    uint32_t dwWindowsVersion; ///< Windows version.
+    uint16_t wTotalLength; ////< The size of entire MS OS 2.0 descriptor set. The value shall match the value in the descriptor set information structure.  
+} usb_ms_os_20_descriptor_set_header_t;
+
+///Microsoft OS 2.0 configuration subset header
+typedef struct PACK
+{
+    uint16_t wLength; ///< The length, in bytes, of this subset header. Shall be set to 8.
+    uint16_t wDescriptorType; ///< MS_OS_20_SUBSET_HEADER_CONFIGURATION
+    uint8_t bConfigurationValue; ///< The configuration value for the USB configuration to which this subset applies
+    uint8_t bReserved; ///< Shall be set to 0.
+    uint16_t wTotalLength; ////< The size of entire MS OS 2.0 descriptor set. The value shall match the value in the descriptor set information structure.  
+} usb_ms_os_20_configuration_subset_header_t;
+
+/// Microsoft OS 2.0 function subset header
+typedef struct PACK
+{
+    uint16_t wLength; ///< The length, in bytes, of this subset header. Shall be set to 8.
+    uint16_t wDescriptorType; ///< MS_OS_20_SUBSET_HEADER_FUNCTION
+    uint8_t bFirstInterface; ///< The interface number for the first interface of the function to which this subset applies.
+    uint8_t bReserved; ///< Shall be set to 0.
+    uint16_t wSubsetLength; ////< The size of entire function subset including this header.
+} usb_ms_os_20_function_subset_header_t;
+
+/// Microsoft OS 2.0 compatible ID descriptor
+typedef struct PACK
+{
+    uint16_t wLength; ///< The length, bytes, of the compatible ID descriptor including value descriptors. Shall be set to 20.
+    uint16_t wDescriptorType; ///< MS_OS_FEATURE_COMPATIBLE_ID
+    uint8_t compatibleID[8]; ///< Compatible ID String
+    uint8_t subCompatibleID[8]; ///< Sub-compatible ID String
+} usb_ms_os_20_compatible_id_descriptor_t;
+
+/// MS OS 2.0 Registry property descriptor: length, type
+typedef struct PACK
+{
+    uint16_t wLength; ///< The length, in bytes, of this descriptor.
+    uint16_t wDescriptorType; ///< MS_OS_20_FEATURE_REG_PROPERTY
+    uint16_t  wPropertyDataType; ///< The type of registry property. See Table 15.
+    uint16_t  wPropertyNameLength; ///< The length of the property name.
+    uint16_t  bPropertyName[20];
+    uint16_t dwPropertyDataLength; ///< The length of property data.
+    uint16_t  bPropertyData[38];
+} usb_ms_os_20_device_interface_guid_section_t;
+
+typedef struct PACK
+{
+    uint16_t bcdVersion;/// = 0x0100 WebUSB descriptor version 1.0
+    uint8_t bVendorCode;///	= 0x01 bRequest value for WebUSB
+    uint8_t iLandingPage;/// = 0x01 URL for landing page
+} usb_bos_webusb_capability_t;
+
+typedef struct PACK
+{
+    usb_desc_bos_platform_t platform;
+    usb_bos_webusb_capability_t capability;
+} usb_bos_webusb_descriptor_t;
+
+// USB WebuSB URL Descriptor
+typedef struct PACK
+{
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint8_t bScheme;
+    char    url[];
+} usb_desc_webusb_url_t;
+
+#endif
 
 /*- Prototypes --------------------------------------------------------------*/
 

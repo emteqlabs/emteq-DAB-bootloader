@@ -538,33 +538,32 @@ static bool USB_Service()
     /* for these "simple" USB requests, we can ignore the direction and use only bRequest */
     switch( request->bmRequestType & 0x7F )
     {
-#if 1
         case SIMPLE_USB_CMD( DEVICE, VENDOR ):
         case SIMPLE_USB_CMD( INTERFACE, VENDOR ):
             {
                 switch( request->bRequest )
                 {
-                    case ' ': ///< @note Vendor-code postfix for STR_WCID_Microsoft is ' ' = 0x20
+                    case VENDOR_REQUEST_MICROSOFT:
                         {
                             enum
                             {
-                                OS_FEATURE_EXT_COMPAT_ID = 4,
-                                OS_FEATURE_EXT_PROPERTIES = 5,
+                                MS_OS_20_DESCRIPTOR_INDEX = 7,
                             };
 
-                            if( request->wIndex == OS_FEATURE_EXT_COMPAT_ID )
+                            if( request->wIndex == MS_OS_20_DESCRIPTOR_INDEX )
                             {
-                                udc_control_send( (const uint8_t*)&usb_wcid_microsoft, MIN( usb_wcid_microsoft.dwLength, length ) );
-                            }
-                            else
-                            if( request->wIndex == OS_FEATURE_EXT_PROPERTIES )
-                            {
-                                udc_control_send( (const uint8_t*)&usb_wcid_extended_properties, MIN( usb_wcid_extended_properties.dwLength, length ) );
+                                udc_control_send( (const uint8_t*)&usb_ms_os_20_descriptor_set, MIN(usb_ms_os_20_descriptor_set.header.wTotalLength, length ) );
                             }
                             else
                             {
                                 USB->DEVICE.DeviceEndpoint[0].EPSTATUSSET.bit.STALLRQ1 = 1;
                             }
+                        }
+                        break;
+
+                    case VENDOR_REQUEST_WEBUSB:
+                        { 
+                            udc_control_send( (const uint8_t*)&usb_webusb_url_set, MIN(usb_webusb_url_set.bLength, length ) );                         
                         }
                         break;
 
@@ -574,7 +573,6 @@ static bool USB_Service()
                 }
             }
             break;
-#endif
         case SIMPLE_USB_CMD( DEVICE, STANDARD ):
         case SIMPLE_USB_CMD( INTERFACE, STANDARD ):
             switch( request->bRequest )
@@ -584,7 +582,13 @@ static bool USB_Service()
                     {
                         udc_control_send( (const uint8_t*)&usb_device_descriptor, MIN( length, usb_device_descriptor.bLength) );
                     }
-                    else if( USB_CONFIGURATION_DESCRIPTOR == type )
+                    else 
+                    if(USB_BINARY_OBJECT_STORE_DESCRIPTOR == type)
+                    {
+                        udc_control_send((const uint8_t*)&usb_bos_descriptor_hierarchy, MIN(length, usb_bos_descriptor_hierarchy.header.wTotalLength));
+                    }
+                    else 
+                    if( USB_CONFIGURATION_DESCRIPTOR == type )
                     {
 #if 1
                         udc_control_send( (const uint8_t*)&usb_configuration_hierarchy, MIN( length, usb_configuration_hierarchy.standard.configuration.wTotalLength ) );
@@ -594,7 +598,8 @@ static bool USB_Service()
 #endif
                     }
 #if USE_STRING_DESCRIPTORS
-                    else if( USB_STRING_DESCRIPTOR == type )
+                    else 
+                    if( USB_STRING_DESCRIPTOR == type )
                     {
                         const usb_string_descriptor_t* stringDescriptor = getStringDescriptor( index );
                         if( stringDescriptor )

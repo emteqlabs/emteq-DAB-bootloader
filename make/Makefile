@@ -104,6 +104,7 @@ INCLUDES += \
 SOURCE_DIR=..
 SOURCES += \
   ../bootloader.c \
+  ../usb.c \
   ../usb_descriptors.c  \
   ../nvmctrl_utils.c \
   ../serialno.c 

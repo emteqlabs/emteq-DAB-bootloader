@@ -109,11 +109,38 @@ typedef struct PACK
 #endif
 } usb_configuration_hierarchy_t;
 
+typedef struct PACK
+{
+    usb_bos_descriptor_header_t header;
+    usb_bos_webusb_descriptor_t webusb;
+    usb_bos_ms_os_20_descriptor_t ms_os_20;
+} usb_bos_descriptor_hierarchy_t;
+
+typedef struct PACK
+{
+    usb_ms_os_20_descriptor_set_header_t header;
+
+#if 0 /// NOT Composite!
+    usb_ms_os_20_configuration_subset_header_t config0_subset_header;
+    usb_ms_os_20_function_subset_header_t func0_subset_header;
+#endif
+
+    usb_ms_os_20_compatible_id_descriptor_t compatible_id;
+    usb_ms_os_20_device_interface_guid_section_t device_interface_guid;
+} usb_ms_os_20_descriptor_set_t;
+
+enum
+{
+    VENDOR_REQUEST_WEBUSB = 0x1,
+    VENDOR_REQUEST_MICROSOFT = 0x2
+};
+
 //-----------------------------------------------------------------------------
 extern usb_device_descriptor_t usb_device_descriptor;
 extern usb_configuration_hierarchy_t usb_configuration_hierarchy;
-extern usb_microsoft_compat_descriptor_t usb_wcid_microsoft;
-extern usb_microsoft_extended_properties_t usb_wcid_extended_properties;
+extern usb_bos_descriptor_hierarchy_t usb_bos_descriptor_hierarchy;
+extern usb_ms_os_20_descriptor_set_t usb_ms_os_20_descriptor_set;
+extern usb_desc_webusb_url_t usb_webusb_url_set;
 
 #if USE_STRING_DESCRIPTORS
 usb_string_descriptor_t* getStringDescriptor(const  uint8_t index);
