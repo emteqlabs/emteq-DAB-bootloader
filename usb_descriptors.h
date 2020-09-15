@@ -34,8 +34,6 @@
 #include "usb.h"
 #include "utils.h"
 
-static const uint16_t cBcdVersion = 0x0101;  //< Binary-Coded-Decimal: Major[2].Minor[2]
-
 /*- Definitions -------------------------------------------------------------*/
 enum
 {

@@ -4,6 +4,14 @@
 #include <stdint.h> //< uint32_t
 #include <stdbool.h> //< bool, true, false
 
+#if __has_include("Version.generated.h")
+#include "Version.generated.h"
+#else
+#error "Please run 'update_version.ps1' to generate version information"
+#endif
+
+uint16_t buildBcd();
+
 /// @TODO This doesn't meet the recommendation from Microchip for a reset memory semaphore
 enum ResetMagic
 {

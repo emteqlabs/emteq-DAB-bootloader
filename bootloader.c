@@ -48,6 +48,7 @@
 #include "partition.h"
 #include "serialno.h"
 
+
 /*- Definitions -------------------------------------------------------------*/
 #define USE_DBL_TAP /* comment out to use GPIO input for bootloader entry */
 #define USB_CMD(dir, rcpt, type) ((USB_##dir##_TRANSFER << 7) | (USB_##type##_REQUEST << 5) | (USB_##rcpt##_RECIPIENT << 0))
@@ -69,13 +70,25 @@ uint32_t resetMagic __attribute__((section( ".resetMagic" )));
 /** Generated version tag from 'git --no-pager describe --tags --always --dirty'
 @note Run update_version.ps1  (Linux users need install PowerShell to run this script)
 */
-const char cVersionTag[] __attribute__( (section( ".versionTag" )) ) __attribute__( (__used__) ) =
-#if __has_include("Version.generated.h")
-#include "Version.generated.h"
-#else
-#error "Please run 'update_version.ps1' to generate version information"
-#endif
-;
+const char cVersionTag[] __attribute__( (section( ".versionTag" )) ) __attribute__( (__used__) ) = PROJECT_FULLVERSION;
+
+uint16_t buildBcd()
+{
+    union BcdPack
+    {
+        uint16_t reg;
+        struct Bits
+        {
+            uint16_t revision : 8;
+            uint16_t minor : 4;
+            uint16_t major : 4;
+        } bits;
+    } packed;
+    packed.bits.major = PROJECT_VERSION_MAJOR;
+    packed.bits.minor = PROJECT_VERSION_MINOR;
+    packed.bits.revision = PROJECT_VERSION_PATCH;
+    return packed.reg;
+}
 
 /*- Types -------------------------------------------------------------------*/
 typedef struct
@@ -580,6 +593,7 @@ static bool USB_Service()
                 case USB_GET_DESCRIPTOR:
                     if( USB_DEVICE_DESCRIPTOR == type )
                     {
+                        usb_device_descriptor.bcdDevice = buildBcd();
                         udc_control_send( (const uint8_t*)&usb_device_descriptor, MIN( length, usb_device_descriptor.bLength) );
                     }
                     else 

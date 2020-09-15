@@ -112,7 +112,6 @@ ASOURCES += \
   ../startup.s
 
 VERSION_FILE=$(SOURCE_DIR)/Version.generated.h
-VERSION_TAG=$(shell git -C $(SOURCE_DIR) --no-pager describe --tags --always --dirty --long)
 
 DEFINES += \
   -DDONT_USE_CMSIS_INIT \
@@ -179,7 +178,7 @@ all: $(BUILD_DIR) $(VERSION_FILE) $(BIN_DIR)/$(BIN).hex $(BIN_DIR)/$(BIN).bin si
 	@$(CC) $(CFLAGS) $(filter %/$(subst .o,.c,$(notdir $@)), $(SOURCES)) -c -o $@
 
 $(VERSION_FILE): $(SOURCE_DIR)/.git/index
-	@echo "$(VERSION_TAG)" > $@
+	@powershell ../scripts/update_version.ps1 $@
 
 $(AOBJECTS) : $(BUILD_DIR)/%.o : $(SOURCE_DIR)/%.s
 	@echo CC $@

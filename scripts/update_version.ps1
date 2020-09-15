@@ -8,6 +8,9 @@
 
 .PARAMETER <Parameter_Name>
     <Brief description of parameter input required. Repeat this attribute if required>
+    
+.PARAMETER -rc
+   For Resource (.rc) file define as preprocessor variable
 
 .INPUTS
   <Inputs if any, otherwise state None>
@@ -24,9 +27,14 @@
 .EXAMPLE
   <Example goes here. Repeat this attribute for more than one example>
 #>
+param (
+    [String]$filename = "Version.generated.h",
+    [switch]$rc = $false
+)
+
 Begin 
 {
-    $filename = "Version.generated.h"
+    Write-Host "Generating version file '$filename'."
 }
 Process 
 {    
@@ -36,7 +44,29 @@ Process
         git config core.hooksPath .githooks
 
         $buildTag = git --no-pager describe --tags --always --dirty --long
-        '"' + $buildTag + '"' | sc $filename
+        $semantictag,$commits,$sha,$dirty = $buildTag.trim('v').split('-')
+        $major,$minor,$patch = $semantictag.split('.').trimStart('0') + @(0); # @note Add an extra '0' at the end as the Patch build is optional i.e. 1.07 vs 1.07.5
+
+        $semanticVersion = [version]("$major.$minor.$patch.$commits")
+
+        $nl = [Environment]::NewLine
+        if ( $rc )
+        {
+            $content = "#define VERSION_RC $major,$minor,$patch,$commits$nl" +`
+                       '#define VERSION_STR "' + $buildTag + '"'
+        }
+        else
+        {
+            $content =  "#define PROJECT_VERSION_MAJOR $major$nl" +`
+                        "#define PROJECT_VERSION_MINOR $minor$nl" +`
+                        "#define PROJECT_VERSION_PATCH $patch$nl" +`
+                        "#define PROJECT_VERSION_COMMIT $commits$nl" +`
+                        "#define PROJECT_VERSION_SHA $sha$nl" +`
+                        '#define PROJECT_VERSION "' + $semanticVersion + '"' + $nl +`
+                        '#define PROJECT_FULLVERSION "' + $buildTag + '"' + $nl
+        }
+
+        $content | sc $filename
     }
     catch
     {
@@ -47,7 +77,7 @@ Process
 End
 {
     $filepath = Resolve-Path $filename
-    Write-Host "Version set to '$buildTag' in '$filepath'."
+    Write-Host "Version set to '$buildTag' [$semanticVersion] in '$filepath'."
     Write-Host "Please recompile the binary to reflect the new version-tag."  -Foreground green
     Exit 0
 }

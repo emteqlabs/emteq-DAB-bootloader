@@ -48,7 +48,7 @@ usb_device_descriptor_t usb_device_descriptor __attribute__( (aligned( 4 )) ) = 
   .bMaxPacketSize0 = 64,
   .idVendor = usbVendorId,
   .idProduct = usbProductId,
-  .bcdDevice = cBcdVersion,
+  .bcdDevice = 0, //< @todo Cannot set here under c!
 
 #if USE_STRING_DESCRIPTORS
   .iManufacturer = USB_STR_MANUFACTURER,
