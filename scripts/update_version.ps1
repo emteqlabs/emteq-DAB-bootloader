@@ -45,7 +45,7 @@ Process
 
         $buildTag = git --no-pager describe --tags --always --dirty --long
         $semantictag,$commits,$sha,$dirty = $buildTag.trim('v').split('-')
-        $major,$minor,$patch = $semantictag.split('.').trimStart('0') + @(0); # @note Add an extra '0' at the end as the Patch build is optional i.e. 1.07 vs 1.07.5
+        $major,$minor,$patch,$others = [int[]]$semantictag.split('.') + [int]0; # @note Add an extra '0' at the end as the Patch build is optional i.e. 1.07 vs 1.07.5
 
         $semanticVersion = [version]("$major.$minor.$patch.$commits")
 
