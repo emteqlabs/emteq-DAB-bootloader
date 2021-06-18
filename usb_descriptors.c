@@ -162,7 +162,7 @@ usb_ms_os_20_descriptor_set_t usb_ms_os_20_descriptor_set __attribute__((aligned
         , u"DeviceInterfaceGUID\0"
         , sizeof(((usb_ms_os_20_device_interface_guid_section_t*)0)->bPropertyData)
         // bPropertyData: {3b9e82dd-cd7b-4133-bf88-4c65d4d84e20} <<Generated with GUID-Gen
-        , u"{3b9e82dd-cd7b-4133-bf88-4c65d4d84e20}\0"
+        , u"{3b9e82dd-cd7b-4133-bf88-4c65d4d84e20}"
     }
 };
 //@TODO Check is valid for composite device only!
