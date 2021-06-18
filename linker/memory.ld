@@ -11,6 +11,7 @@ __length_RAM = 192K; /** @todo Configure per device */
 __length_BackupRAM = 8K; /** @todo Configure per device */
 __length_UserPage = 512; /** @todo Configure per device */
 __length_UserPageReserved = 32; /** First eight 32-bit words (32 Bytes) are reserved  @todo Configure per device @todo 3-words are unused on SAMD51 */
+__origin_BootloaderVersionTag = 0x24;
 
 /** @{ PARTITIONS */
 __BOOTLOADER_SIZE__ = DEFINED(__BOOTLOADER_SIZE__) ? __BOOTLOADER_SIZE__ : 6K;
@@ -57,6 +58,7 @@ __origin_USERPAGE_FLASH = ORIGIN(USERPAGE_FLASH);
 __length_USERPAGE_FLASH = LENGTH(USERPAGE_FLASH);
 __origin_CALDATA_FLASH = __origin_USERPAGE_FLASH + __length_UserPageReserved;
 __length_CALDATA_FLASH = __length_USERPAGE_FLASH - __length_UserPageReserved;
+
 
 __end_RAM = ORIGIN(RAM) + LENGTH(RAM);
 

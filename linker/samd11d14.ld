@@ -39,7 +39,6 @@ OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
 OUTPUT_ARCH(arm)
 SEARCH_DIR(.)
 
-
 ENTRY(Reset_Handler)
 
 SECTIONS
@@ -62,7 +61,8 @@ SECTIONS
     FILL(0xff)
     KEEP(*(.vectors))
     
-    . = ALIGN(4);
+    . = __origin_BootloaderVersionTag;
+    PROVIDE(__origin_versionTag = .);
     KEEP(*(.versionTag)) ;
     . = ALIGN(4);
 
@@ -128,7 +128,7 @@ SECTIONS
 	__ram_end__ = __end_RAM;
 }
 
-
+ASSERT( __origin_versionTag == 0x24 + ORIGIN(TARGET_FLASH), "VersionTag address moved" )
 ASSERT( __origin_CALDATA_FLASH == 0x804020, "Factory Calibration Data address moved" )
 ASSERT( ORIGIN(HWDATA_FLASH) == 0x1FC0, "Hardware Data address moved" )
 ASSERT( ORIGIN(APP_FLASH) == __APP_OFFSET__, "App-Image address moved" )
