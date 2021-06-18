@@ -91,7 +91,7 @@ endif
 LDFLAGS += -Wl,-L../linker/,--script=$(LD_ROOT)
 
 ifdef DEBUG
-CFLAGS += -g -Og
+CFLAGS += -g -O0
 else
 CFLAGS += -Os -s
 LDFLAGS += -Os -Wl,--strip-all,--strip-debug
