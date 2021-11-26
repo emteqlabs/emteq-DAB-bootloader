@@ -41,13 +41,13 @@ _vectors:
 #ifdef STARTUP_FROM_RESET
   .word Reset_Handler
 #else
-  .word loop
+  .word Fault_Handler
 #endif /* STARTUP_FROM_RESET */
-  .word loop
-  .word loop
-  .word loop
-  .word loop
-  .word loop
+  .word Fault_Handler
+  .word Fault_Handler
+  .word Fault_Handler
+  .word Fault_Handler
+  .word Fault_Handler
   .word 0
   .word 0
 
@@ -94,5 +94,7 @@ zero_loop:
   ldr r0, [r1, #4] /* load reset address from user app */
   mov pc, r0
 
-loop:
+Fault_Handler:
+  bkpt 10 /** Enables exception debugging https://wiki.segger.com/J-Link_GDB_Server#-excdbg */
+  bx lr  
   b .
