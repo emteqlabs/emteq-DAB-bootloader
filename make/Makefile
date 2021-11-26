@@ -64,7 +64,7 @@ OBJCOPY= arm-none-eabi-objcopy
 SIZE= arm-none-eabi-size
 ELF2DFU=../bin2dfu/bin2dfu
 
-CFLAGS += -W -Wall --std=gnu11
+CFLAGS += -W -Wall --std=c11
 CFLAGS += -Wno-address-of-packed-member 
 CFLAGS += -fno-diagnostics-show-caret
 CFLAGS += -fdata-sections -ffunction-sections
