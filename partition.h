@@ -39,7 +39,7 @@ static const PartitionAddress partition[Partition_COUNT] =
 };
 
 
-inline bool isPartitionValid( const PartitionId partitionId )
+static inline bool isPartitionValid( const PartitionId partitionIdb )
 {
-    return partitionId > Partition_Invalid && partitionId < Partition_COUNT;
+    return (partitionIdb > Partition_Invalid) && (partitionIdb < Partition_COUNT);
 }
