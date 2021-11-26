@@ -902,10 +902,13 @@ static void doubleTapResetDelay()
     /// @Note Default iOS double tap is .25 seconds so we use this here based on processor frequency
     const uint32_t delayCycles = F_CPU / 4; ///< Cycles to delay for boot 
     const uint32_t cyclesPerIteration = 3; ///<, Number of clocks per iteration (44,000,000 cycles on CortexM4)
-    volatile uint32_t delayIterations = delayCycles / cyclesPerIteration; while( --delayIterations )
+    volatile uint32_t delayIterations = delayCycles / cyclesPerIteration;
+    
+    while( --delayIterations )
     {
-        asm( "nop" );
+        __asm ( "nop" );
     }
+
     /* however, if execution reaches this point, the window of opportunity has closed and the "magic" disappears  */
     resetMagic = 0;
 }
