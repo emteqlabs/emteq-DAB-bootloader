@@ -1044,7 +1044,7 @@ void bootloader( void )
         service USB
         */
 
-        while( USB_Service() );
+        while( USB_Service() && CAN_Service() );
     }
 
 #if 0 ///< @todo Set protection from malicious user apps
